@@ -45,6 +45,20 @@ New indicator-based positions can only be entered under two specific market cond
 - **Abstraction**: The entry signal generation logic must be modularized. The core EA trade management and hedging logic should be decoupled from the specific indicator-based trigger.
 - **Future-Proofing**: Modifications or exports of entry logic to external triggers in the future must not require changes to the core EA logic.
 
+### 2.5 Trade Comments and Sequence Tracking
+
+To facilitate trade monitoring, every order must include a specific comment formatted as: `<N> [Keyword]`.
+
+- **Sequence Counters**: The EA must maintain independent sequence counters for BUY and SELL directions.
+- **Rules**:
+  - **Flat Market Entry**: The first trade entered based on indicators in a flat market must have the comment: `<1> New Sequence`.
+  - **Hedge Entry**: Any trade executed as a defensive hedge (balancing trade) or any subsequent trade in the same direction must have the keyword `Hedge`. 
+    - Example: If it's the first SELL trade balancing a BUY, it should be `<1> Hedge`.
+  - **Subsequent Trades**: Each subsequent trade in the same direction increments `N`.
+  - **Inside Trade**: Indicator-staged entries that occur while "Inside a Hedge" must use the keyword `Inside Trade`.
+    - Example: `<2> Inside Trade`.
+  - **Reset Logic**: When all positions in a specific direction are closed, the sequence counter for that direction must reset to 1.
+
 ## 3. Trade Management & Trimming Logic
 
 Systematically generate profit by trimming the outside boundaries of the hedge using internal profits.
@@ -113,6 +127,9 @@ Instead of individual inputs, EMA periods are driven by a single `EMAPeriods` En
 10. EMA_P10: 20 - 50 - 200
 11. EMA_P11: 50 - 100 - 200
 
+> [!IMPORTANT]
+> The EA logic must derive the three individual EMA period values programmatically from the selected Enum value.
+
 ## 5. EA Input Parameters (Single Source of Truth)
 
 #### Group 1: Position Sizing & Core Hedging
@@ -129,10 +146,10 @@ Instead of individual inputs, EMA periods are driven by a single `EMAPeriods` En
 - **SqueezePips (Double)**: Distance used to trail the Post-Trim Hedge Price Point.
 
 #### Group 3: Market/Session Filters (Flat Market Only)
-- **SydneyActive (Bool)**: Enable/Disable entries during Sydney session.
-- **TokyoActive (Bool)**: Enable/Disable entries during Tokyo session.
-- **LondonActive (Bool)**: Enable/Disable entries during London session.
-- **NewYorkActive (Bool)**: Enable/Disable entries during New York session.
+- **SydneyActive (22:00 - 07:00 UTC) (Bool)**: Enable/Disable entries during Sydney session.
+- **TokyoActive (00:00 - 09:00 UTC) (Bool)**: Enable/Disable entries during Tokyo session.
+- **LondonActive (08:00 - 17:00 UTC) (Bool)**: Enable/Disable entries during London session.
+- **NewYorkActive (13:00 - 22:00 UTC) (Bool)**: Enable/Disable entries during New York session.
 - **MondayActive (Bool)** to **FridayActive (Bool)**: Individual weekday toggles.
 
 #### Group 4: Strategy 1 Indicators
@@ -143,3 +160,8 @@ Instead of individual inputs, EMA periods are driven by a single `EMAPeriods` En
 
 #### Group 5: Strategy 2 Indicators
 - (Duplicate of Group 4 with **S2** prefix).
+
+## 6. Coding Standards & Documentation
+
+- **MQL5 Annotation**: The Expert Advisor code must contain very detailed, line-by-line or block-level annotations explaining the logic. 
+- **PRD Alignment**: All comments and documentation within the code must strictly align with the definitions and logic described in this PRD.

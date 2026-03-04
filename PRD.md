@@ -24,7 +24,8 @@ New indicator-based positions can only be entered under two specific market cond
 
 - **LotSize**: Fixed lot size for every new individual indicator-based entry.
 - **MaxLots**: Maximum allowed total accumulated lot size in any one direction (total Buy lots or total Sell lots) for standard entries. If a new entry would cause the total volume to exceed `MaxLots`, the indicator entry is blocked.
-- **Hedge Exemption**: `LotSize` and `MaxLots` limits do not apply to defensive hedge entries. Hedge volumes are dynamically calculated based on the exact lot size required to perfectly balance open positions.
+- **MaxLots in Hedging**: The `MaxLots` limit now also applies to defensive hedge entries. If the total volume in a direction (the side needing the hedge) has reached `MaxLots`, or if opening a required hedge would cause the hedge side to exceed `MaxLots`, the EA must not open a new hedge position. Instead, it must reduce the unbalanced side by `LotSize` from the farthest open positions.
+- **Hedge Exemption**: [DEPRECATED] Previously, `MaxLots` limits did not apply to defensive hedge entries. This exemption is now removed in favor of the reduction logic.
 
 ### 2.3 Hedging Logic
 
@@ -37,7 +38,9 @@ New indicator-based positions can only be entered under two specific market cond
 
 **Trigger Scenarios**:
 - **Unbalanced BUY**: (Buy Lots > Sell Lots). Requires a Sell Hedge. Trigger point is `HedgePips` below the lowest (nearest to price) open Buy entry.
+  - *If a Sell Hedge would exceed `MaxLots` or if Buy side already at `MaxLots`: Reduce BUY side by `LotSize` from farthest positions.*
 - **Unbalanced SELL**: (Sell Lots > Buy Lots). Requires a Buy Hedge. Trigger point is `HedgePips` above the highest (nearest to price) open Sell entry.
+  - *If a Buy Hedge would exceed `MaxLots` or if Sell side already at `MaxLots`: Reduce SELL side by `LotSize` from farthest positions.*
 
 ### 2.4 Modular Entry Generation
 
@@ -52,12 +55,18 @@ To facilitate trade monitoring, every order must include a specific comment form
 - **Sequence Counters**: The EA must maintain independent sequence counters for BUY and SELL directions.
 - **Rules**:
   - **Flat Market Entry**: The first trade entered based on indicators in a flat market must have the comment: `<1> New Sequence`.
-  - **Hedge Entry**: Any trade executed as a defensive hedge (balancing trade) or any subsequent trade in the same direction must have the keyword `Hedge`. 
-    - Example: If it's the first SELL trade balancing a BUY, it should be `<1> Hedge`.
+  - **Hedge Entry**: Any trade executed as a defensive hedge (balancing trade) or any subsequent trade in the same direction must have the keyword `Hedge`, unless opened during a "Hedge Squeeze" (Section 3.5).
+    - **Trailing Hedge**: If a hedge is entered while a Post-Trim Hedge Point is active (Squeezing) and the current squeezed point is better (tighter) than the standard trigger point defined in Section 2.3, the keyword must be `Trailing Hedge`. If the squeeze has reached the standard trigger point, the keyword remains `Hedge`.
+    - Example: If it's the first SELL trade balancing a BUY during a squeeze, it should be `<1> Trailing Hedge`.
+    - **Sequence Maintenance**: The sequence number `<N>` must be maintained and incremented even for Trailing Hedges.
   - **Subsequent Trades**: Each subsequent trade in the same direction increments `N`.
   - **Inside Trade**: Indicator-staged entries that occur while "Inside a Hedge" must use the keyword `Inside Trade`.
     - Example: `<2> Inside Trade`.
   - **Reset Logic**: When all positions in a specific direction are closed, the sequence counter for that direction must reset to 1.
+- **Trimming/Reduction Comments**:
+  - Partial closures for trimming must use the comment: `Trim`.
+  - Theoretical partial closures during trailing must use the comment: `Intermediate Trim`.
+  - Volume reductions due to `MaxLots` breach must use the comment: `Reduction`.
 
 ## 3. Trade Management & Trimming Logic
 
@@ -73,13 +82,16 @@ Profits from closed positions are distributed according to the `KeepProfitPercen
 - **Pocketed Profit**: `Total Booked Profit * KeepProfitPercent`.
 - **Trim Amount**: The remainder is used to partially close (trim) the open losing positions.
 - **Farthest First**: Trimming always starts from the trade with the farthest entry price from the current market price.
+- **Trimming Guard**: Trimming only applies to losing positions where the entry price is at least `HedgePips` away from the current market price.
+- **Continuity**: If the available trim amount is sufficient to fully close the farthest position, the EA will close it entirely and use any remaining trim amount to proceed to the next qualifying farthest position.
 
-### 3.3 Theoretical Profit Trimming
+### 3.3 Intermediate (Theoretical) Profit Trimming
 
 - **Proactive Risk Reduction**: Trims are executed even before a winning trade is fully closed.
 - **Activation**: Once `LockProfitPips` is reached, a theoretical profit is calculated based on the current trailing stop loss level.
-- **Proactive Trim**: Apply the `KeepProfitPercent` rule to this theoretical profit and immediately trim the farthest loss positions.
-- **Excess Profit Reconciliation**: Upon actual closure, if `Actual Booked Profit > Theoretical Profit Used`, the excess is processed through the trimming logic again.
+- **Proactive Trim**: Apply the `KeepProfitPercent` rule to this theoretical profit and immediately trim the farthest loss positions using the comment `Intermediate Trim`.
+- **Incremental Trimming**: After the initial intermediate trim, subsequent trims are triggered only when the Trailing Stop Loss moves by at least the value of `IntermediateTrimPips`.
+- **Excess Profit Reconciliation**: Upon actual closure, if `Actual Booked Profit > Theoretical Profit Used`, the excess is processed through the trimming logic again using the comment `Trim`.
 
 ### 3.4 Persistence & Profit Tally
 
@@ -143,6 +155,7 @@ Instead of individual inputs, EMA periods are driven by a single `EMAPeriods` En
 - **LockProfitPips (Double)**: Profit level to trigger trailing and theoretical trimming.
 - **TrailingStopPips (Double)**: Distance to trail price.
 - **KeepProfitPercent (Double 0.0-1.0)**: Ratio of profit to retain vs. use for trimming.
+- **IntermediateTrimPips (Double)**: Trailing distance required to trigger subsequent intermediate trims.
 - **SqueezePips (Double)**: Distance used to trail the Post-Trim Hedge Price Point.
 
 #### Group 3: Market/Session Filters (Flat Market Only)
@@ -180,3 +193,20 @@ To facilitate efficient and safe genetic optimization in MT5, the EA must adhere
 
 - **MQL5 Annotation**: The Expert Advisor code must contain very detailed, line-by-line or block-level annotations explaining the logic. 
 - **PRD Alignment**: All comments and documentation within the code must strictly align with the definitions and logic described in this PRD.
+
+## 9. Logging & Decision Transparency
+
+To facilitate debugging and performance analysis, the EA must provide detailed, "reasoned" logs in the MetaTrader 5 Journal using `Print` or `PrintFormat`.
+
+### 9.1 Logging Requirements
+
+- **Trade Decisions**: Every time a trade signal is ignored or executed, the logs must explain the "why".
+  - *Example*: "Indicator entry blocked: Price too close to existing position (Gap: 8.5 pips < MinGap: 10 pips)."
+- **Hedge Triggers**: When a hedge or reduction is triggered, log the specific trigger point and the current market distance.
+  - *Example*: "Hedge Triggered: Price 1.12345 reached standard trigger at 1.12350 (HedgePips: 20)."
+- **Trailing Stops**: Log every update to a position's Stop Loss, showing the old vs. new level and the reason (Price movement).
+- **Squeezing Logic**:
+  - Log when a `PostTrimHedgePricePoint` is established or trailed.
+  - Log the specific keyword decision ("Trailing Hedge" vs "Hedge") based on comparison with the standard trigger.
+- **Trimming**: Log which position is being trimmed and the calculated distance/profit being used.
+- **MaxLots & Reductions**: Explicitly log when `MaxLots` is breached and why a reduction was chosen over a hedge.

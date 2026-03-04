@@ -3,12 +3,18 @@
 //|                                  Copyright 2026, Souvik Chanda  |
 //|                                             https://www.mql5.com |
 //+------------------------------------------------------------------+
+/*
+   Component: Utilities
+   Description: Mathematical helper functions and technical indicator signal generation.
+   PRD Sections: 2.3 (Balance Monitoring), 3.1 (Session Filters), 4 (Indicator Logic).
+*/
 
 #include "Globals.mqh"
 #include "Inputs.mqh"
 
 //+------------------------------------------------------------------+
-//| Helper: Calculate Volumetric Balances                            |
+//| PRD 2.3: Calculate Volumetric Balances                           |
+//| Scans open positions to sync directional volume and sequence.    |
 //+------------------------------------------------------------------+
 void CalculateBalances()
 {
@@ -18,6 +24,7 @@ void CalculateBalances()
    bool hasBuy = false;
    bool hasSell = false;
    
+   //--- Iterate through all open positions for the current magic number and symbol
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
       if(m_position.SelectByIndex(i))
@@ -38,12 +45,13 @@ void CalculateBalances()
       }
    }
    
+   //--- PRD 2.5: Reset sequence counters to 1 if no positions remain in that direction
    if(!hasBuy) g_buySequence = 1;
    if(!hasSell) g_sellSequence = 1;
 }
 
 //+------------------------------------------------------------------+
-//| Helper: Get EMA Periods from Enum                                |
+//| PRD 4.2: Derive individual EMA Periods from defined set enum     |
 //+------------------------------------------------------------------+
 void GetEMAPeriods(ENUM_EMA_SETS set, int &fast, int &medium, int &slow)
 {
@@ -65,23 +73,27 @@ void GetEMAPeriods(ENUM_EMA_SETS set, int &fast, int &medium, int &slow)
 }
 
 //+------------------------------------------------------------------+
-//| Helper: Check Session Filters (UTC)                              |
+//| PRD 1.1/5.3: Verify if current server time matches active sessions|
+//| Note: Sydney, Tokyo, London, and New York overlap handled.       |
 //+------------------------------------------------------------------+
 bool IsSessionActive()
 {
+   //--- PRD 7.2: Use TimeTradeServer in Strategy Tester for synchronization
    datetime now = (MQLInfoInteger(MQL_TESTER)) ? TimeTradeServer() : TimeGMT();
    MqlDateTime dt;
    TimeToStruct(now, dt);
    
+   //--- Individual weekday exclusion toggles (PRD 5.3)
    if(dt.day_of_week == 1 && !MondayActive) return false;
    if(dt.day_of_week == 2 && !TuesdayActive) return false;
    if(dt.day_of_week == 3 && !WednesdayActive) return false;
    if(dt.day_of_week == 4 && !ThursdayActive) return false;
    if(dt.day_of_week == 5 && !FridayActive) return false;
-   if(dt.day_of_week == 0 || dt.day_of_week == 6) return false; 
+   if(dt.day_of_week == 0 || dt.day_of_week == 6) return false; // Weekend block
    
    int hour = dt.hour;
    
+   //--- Session active checks (inclusive hourly ranges per PRD 5.3)
    if(SydneyActive && (hour >= 22 || hour < 7)) return true;
    if(TokyoActive && (hour >= 0 && hour < 9)) return true;
    if(LondonActive && (hour >= 8 && hour < 17)) return true;
@@ -91,10 +103,12 @@ bool IsSessionActive()
 }
 
 //+------------------------------------------------------------------+
-//| Helper: Calculate Signal for a Strategy                          |
+//| PRD 4: Core Strategy Logic - Generates trade signals             |
+//| Processes RSI, EMA alignment, ADX trend, and Bollinger Bands.    |
 //+------------------------------------------------------------------+
 int GetStrategySignal(int strategyNum)
 {
+   //--- Local mappings for the requested strategy index (1 or 2)
    bool useRSI, useEMA, useADX, useBB;
    ENUM_TF_OPTIONS tfRSI, tfEMA, tfADX, tfBB;
    int rsiPeriod, adxPeriod;
@@ -119,6 +133,7 @@ int GetStrategySignal(int strategyNum)
    bool sellSignal = true;
    bool anyActive = false;
 
+   //--- PRD 4: RSI Component
    if(useRSI) {
       anyActive = true;
       int h = (strategyNum == 1) ? g_hRSI1 : g_hRSI2;
@@ -128,11 +143,13 @@ int GetStrategySignal(int strategyNum)
       }
       double rsi[];
       if(CopyBuffer(h, 0, 0, 2, rsi) == 2) {
+         //--- Level crossover logic
          if(!(rsi[0] < (100 - rsiSellLevel) && rsi[1] >= (100 - rsiSellLevel))) buySignal = false;
          if(!(rsi[0] > rsiSellLevel && rsi[1] <= rsiSellLevel)) sellSignal = false;
       } else { buySignal = false; sellSignal = false; }
    }
 
+   //--- PRD 4: EMA Component (Stacked Alignment)
    if(useEMA) {
       anyActive = true;
       int f, m, s;
@@ -156,11 +173,13 @@ int GetStrategySignal(int strategyNum)
       
       double emaF[], emaM[], emaS[];
       if(CopyBuffer(hf, 0, 0, 1, emaF) == 1 && CopyBuffer(hm, 0, 0, 1, emaM) == 1 && CopyBuffer(hs, 0, 0, 1, emaS) == 1) {
+         //--- Buy: Fast > Medium > Slow | Sell: Fast < Medium < Slow
          if(!(emaF[0] > emaM[0] && emaM[0] > emaS[0])) buySignal = false;
          if(!(emaF[0] < emaM[0] && emaM[0] < emaS[0])) sellSignal = false;
       } else { buySignal = false; sellSignal = false; }
    }
 
+   //--- PRD 4: ADX Component
    if(useADX) {
       anyActive = true;
       int h = (strategyNum == 1) ? g_hADX1 : g_hADX2;
@@ -170,11 +189,13 @@ int GetStrategySignal(int strategyNum)
       }
       double adx[], diPlus[], diMinus[];
       if(CopyBuffer(h, 0, 0, 1, adx) == 1 && CopyBuffer(h, 1, 0, 1, diPlus) == 1 && CopyBuffer(h, 2, 0, 1, diMinus) == 1) {
+         //--- Strong trend (ADX > Threshold) and Directional Alignment
          if(!(adx[0] > adxThreshold && diPlus[0] > diMinus[0])) buySignal = false;
          if(!(adx[0] > adxThreshold && diMinus[0] > diPlus[0])) sellSignal = false;
       } else { buySignal = false; sellSignal = false; }
    }
 
+   //--- PRD 4: Bollinger Band Component
    if(useBB) {
       anyActive = true;
       int h = (strategyNum == 1) ? g_hBB1 : g_hBB2;
@@ -184,6 +205,7 @@ int GetStrategySignal(int strategyNum)
       }
       double upper[], lower[];
       if(CopyBuffer(h, 1, 0, 1, upper) == 1 && CopyBuffer(h, 2, 0, 1, lower) == 1) {
+         //--- Buy on Lower Band | Sell on Upper Band
          if(!(m_symbol.Ask() <= lower[0])) buySignal = false;
          if(!(m_symbol.Bid() >= upper[0])) sellSignal = false;
       } else { buySignal = false; sellSignal = false; }
@@ -196,7 +218,8 @@ int GetStrategySignal(int strategyNum)
 }
 
 //+------------------------------------------------------------------+
-//| Helper: Get Random Signal for Testing                            |
+//| Placeholder: Get Random Signal for Optimization Tests            |
+//| Note: Should be replaced by PRD 2 requirements in production.    |
 //+------------------------------------------------------------------+
 int GetRandomSignal()
 {

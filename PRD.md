@@ -161,7 +161,22 @@ Instead of individual inputs, EMA periods are driven by a single `EMAPeriods` En
 #### Group 5: Strategy 2 Indicators
 - (Duplicate of Group 4 with **S2** prefix).
 
-## 6. Coding Standards & Documentation
+## 7. Genetic Optimization Considerations
+
+To facilitate efficient and safe genetic optimization in MT5, the EA must adhere to the following:
+
+### 7.1 Framework Performance
+- **Handle Caching**: All indicator handles must be initialized once and cached to avoid the overhead of re-creating handles on every tick.
+- **I/O Optimization**: Data persistence (SaveState) should be disabled when the EA is running in `MQL_OPTIMIZATION` mode to maximize throughput.
+
+### 7.2 Strategy Tester Compatibility
+- **Time Synchronization**: Session filters must use `TimeTradeServer()` when running in the Strategy Tester to ensure UTC-based filters align with the tester's internal clock.
+- **Persistence Scope**: In live trading, state is saved to the MT5 "Common" folder. In the Strategy Tester, state must be kept local to the tester agent's folder to prevent write collisions between parallel optimization agents.
+
+### 7.3 Custom Optimization Metrics
+- The EA should implement the `OnTester()` handler to provide a custom fitness metric (e.g., Profit / Relative Drawdown) for selection in the Strategy Tester.
+
+## 8. Coding Standards & Documentation
 
 - **MQL5 Annotation**: The Expert Advisor code must contain very detailed, line-by-line or block-level annotations explaining the logic. 
 - **PRD Alignment**: All comments and documentation within the code must strictly align with the definitions and logic described in this PRD.

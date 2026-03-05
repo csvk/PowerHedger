@@ -51,7 +51,7 @@ int OnInit()
    CalculateBalances();
    
    //--- Seed random generator for testing purposes (Note: PRD 2.1 requires indicators, random is for dev)
-   MathSrand(12345);
+   MathSrand(RandomSeed);
    
    return(INIT_SUCCEEDED);
 }

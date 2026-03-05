@@ -43,6 +43,7 @@ input bool     FridayActive         = true;      // Enable trading on Friday
 //--- Strategy Configuration
 input group "Strategy Priority & Random Mode"
 input bool     EnableRandom         = true;      // If true, Random takes priority. Else S1/S2 priority applies.
+input int      RandomSeed           = 12345;     // Random generator seed for testing
 input ENUM_STRATEGY_PRIORITY PrioritizeStrategy = STRAT_1; // Prioritized strategy when both give signals
 
 //--- PRD 5.4: Group - Strategy 1 Indicators (Trend)

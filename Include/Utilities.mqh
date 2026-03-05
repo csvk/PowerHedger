@@ -121,8 +121,9 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minGapPips, E
    }
    
    //--- SCENARIO 2: Outside Entry (PRD 2.1.b)
-   //--- Only Buy or only Sell open, OR price is outside the corridor
-   if((hasBuy && !hasSell) || (!hasBuy && hasSell) || (hasBuy && hasSell))
+   //--- Only Buy OR only Sell open. 
+   //--- Note: If both exist and we are not "Inside" (Scen 1), entry is blocked.
+   if((hasBuy && !hasSell) || (!hasBuy && hasSell))
    {
       if(OutsideAllowed == OUTSIDE_NO) return false;
       
@@ -145,7 +146,7 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minGapPips, E
          }
       }
       
-      if(nearestP == -1) { outContext = CONTEXT_NEW; return true; } // Should not happen if hasBuy/hasSell
+      if(nearestP == -1) { outContext = CONTEXT_NEW; return true; } 
       
       // Condition 1: Nearest must be in loss
       bool nearestInLoss = (nearestType == POSITION_TYPE_BUY) ? (bid < nearestP) : (ask > nearestP);
@@ -170,6 +171,9 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minGapPips, E
       
       return false;
    }
+   
+   // If we reach here, and it's not a flat market, it means it's two-sided but not "Inside"
+   if(hasBuy || hasSell) return false; 
    
    outContext = CONTEXT_NEW;
    return true; // Flat market case

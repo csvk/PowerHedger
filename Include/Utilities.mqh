@@ -53,7 +53,7 @@ int CountOpenPositions(ENUM_POSITION_TYPE type)
 //| PRD 2.1: Check if new signalled trade is allowed based on        |
 //| Inside/Outside market conditions and distance rules.             |
 //+------------------------------------------------------------------+
-bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minGapPips, ENUM_MARKET_CONTEXT &outContext)
+bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minPipGap, ENUM_MARKET_CONTEXT &outContext)
 {
    double lowestBuy = -1, highestBuy = -1;
    double lowestSell = -1, highestSell = -1;
@@ -93,8 +93,8 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minGapPips, E
    //--- Price is between Buy and Sell trades
    if(hasBuy && hasSell)
    {
-      double innerBuy = lowestBuy;  // Assuming Sell is below
-      double innerSell = highestSell; // Assuming Buy is above
+      double innerBuy = lowestBuy;  
+      double innerSell = highestSell; 
       
       // Correct for relative orientation
       if(highestBuy < lowestSell) { innerBuy = highestBuy; innerSell = lowestSell; }
@@ -109,20 +109,17 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minGapPips, E
          // PRD 2.1: Distance must be checked against both Buy and Sell when open on both sides
          double distToBuy = MathAbs(currentPrice - innerBuy);
          double distToSell = MathAbs(currentPrice - innerSell);
-         double minGapPoints = minGapPips * m_symbol.Point() * 10;
+         double minPipGapPoints = minPipGap * m_symbol.Point() * 10;
          
-         if(distToBuy < minGapPoints || distToSell < minGapPoints) return false;
+         if(distToBuy < minPipGapPoints || distToSell < minPipGapPoints) return false;
          
          outContext = CONTEXT_INSIDE;
          return true;
       }
-      
-      // If not inside, we treat it as "Near" which effectively follows Scen 2 logic down below
    }
    
    //--- SCENARIO 2: Outside Entry (PRD 2.1.b)
    //--- Only Buy OR only Sell open. 
-   //--- Note: If both exist and we are not "Inside" (Scen 1), entry is blocked.
    if((hasBuy && !hasSell) || (!hasBuy && hasSell))
    {
       if(OutsideAllowed == OUTSIDE_NO) return false;
@@ -152,8 +149,8 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minGapPips, E
       bool nearestInLoss = (nearestType == POSITION_TYPE_BUY) ? (bid < nearestP) : (ask > nearestP);
       if(!nearestInLoss) return false;
       
-      // Condition 2: MinPipGaps away
-      if(minDist < minGapPips * m_symbol.Point() * 10) return false;
+      // Condition 2: MinPipGap away
+      if(minDist < minPipGap * m_symbol.Point() * 10) return false;
       
       // Condition 3: OutsideAllowed enum filters
       bool isAllowed = false;
@@ -172,11 +169,7 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minGapPips, E
       return false;
    }
    
-   // If we reach here, and it's not a flat market, it means it's two-sided but not "Inside"
-   if(hasBuy || hasSell) return false; 
-   
-   outContext = CONTEXT_NEW;
-   return true; // Flat market case
+   return false; 
 }
 
 //+------------------------------------------------------------------+

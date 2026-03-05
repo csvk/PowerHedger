@@ -16,15 +16,15 @@ New indicator-based positions can only be entered under specific market conditio
   - **Inside Entry**: Allowed when the current market price is between existing Buy and Sell trades (i.e., both directions have open positions).
   - **Outside Entry**: Allowed when positions are open in only one direction (completely unbalanced). In this case, an entry is allowed only if:
     - The position nearest to the current market price is currently in a loss.
-    - The current market price is at least `MinGapPips` away from that nearest position.
+    - The current market price is at least `MinPipGap` away from that nearest position.
     - The entry direction is permitted by the `OutsideAllowed` parameter.
 - Session and Weekday filters do **not** apply to these subsequent entries.
 
 **Entry Rules**:
-- **MinGapPips**: The minimum pip distance that must be maintained between the current market price and the nearest open trade in either direction. 
+- **MinPipGap**: The minimum pip distance that must be maintained between the current market price and the nearest open trade in either direction. 
   - If positions are open on both sides (Buy and Sell), the distance must be checked against both.
   - If positions are open on only one side, it is checked against that side.
-  - **Calculation**: `MinGapPips = InsidePipMultiplier * HedgePips`.
+  - **Calculation**: `MinPipGap = MinPipGapMultiplier * HedgePips`.
 - **Strategies**: The EA runs multiple independent strategies simultaneously to identify entries:
   - **Strategy 1 (Trend)**: Default name "Trend".
   - **Strategy 2 (Reversal)**: Default name "Reversal".
@@ -58,7 +58,7 @@ New indicator-based positions can only be entered under specific market conditio
 
 ### 2.4 Modular Entry Generation
 
-- **Conditional Invocation**: The modular entry generation logic must only be called if the EA has already verified that valid entry conditions exist (e.g., in a Flat Market or Inside a Hedge) and all active filters (Session/Weekday) and distance rules (MinGapPips) are satisfied. The EA should not waste resources calculating indicators if a trade is not permitted by these factors.
+- **Conditional Invocation**: The modular entry generation logic must only be called if the EA has already verified that valid entry conditions exist (e.g., in a Flat Market or Inside a Hedge) and all active filters (Session/Weekday) and distance rules (MinPipGap) are satisfied. The EA should not waste resources calculating indicators if a trade is not permitted by these factors.
 - **Abstraction**: The entry signal generation logic must be modularized. The core EA trade management and hedging logic should be decoupled from the specific indicator-based trigger.
 - **Future-Proofing**: Modifications or exports of entry logic to external triggers in the future must not require changes to the core EA logic.
 
@@ -167,7 +167,7 @@ Instead of individual inputs, EMA periods are driven by a single `EMAPeriods` En
 - **LotSize (Double)**: Fixed lot size for standard entries.
 - **MaxLots (Double)**: Maximum directional lot limit.
 - **HedgePips (Double)**: Trigger distance for defensive hedges.
-- **InsidePipMultiplier (Double)**: Multiplier used to calculate `MinGapPips` (`MinGapPips = InsidePipMultiplier * HedgePips`).
+- **MinPipGapMultiplier (Double)**: Multiplier used to calculate `MinPipGap` (`MinPipGap = MinPipGapMultiplier * HedgePips`).
 - **PrioritizeStrategy (Enum)**: Strategy 1, Strategy 2. When both strategies give a signal, the one which is prioritized will be used.
 - **OutsideAllowed (Enum)**: No, Both Sides, Same Direction, Against Direction. 
   - `No`: Outside trade is not allowed at all.
@@ -228,7 +228,7 @@ To facilitate debugging and performance analysis, the EA must provide detailed, 
 ### 9.1 Logging Requirements
 
 - **Trade Decisions**: Every time a trade signal is ignored or executed, the logs must explain the "why".
-  - *Example*: "Indicator entry blocked: Price too close to existing position (Gap: 8.5 pips < MinGap: 10 pips)."
+  - *Example*: "Indicator entry blocked: Price too close to existing position (Gap: 8.5 pips < MinPipGap: 10 pips)."
 - **Hedge Triggers**: When a hedge or reduction is triggered, log the specific trigger point and the current market distance.
   - *Example*: "Hedge Triggered: Price 1.12345 reached standard trigger at 1.12350 (HedgePips: 20)."
 - **Trailing Stops**: Log every update to a position's Stop Loss, showing the old vs. new level and the reason (Price movement).

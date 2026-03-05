@@ -128,8 +128,8 @@ class TradeAnalyzer:
 
     def analyze(self):
         hedge_pips = float(self.inputs.get('HedgePips', 0))
-        multiplier = float(self.inputs.get('InsidePipMultiplier', 1))
-        min_gap = hedge_pips * multiplier
+        multiplier = float(self.inputs.get('MinPipGapMultiplier', 1))
+        min_pip_gap = hedge_pips * multiplier
         lot_size = float(self.inputs.get('LotSize', 0))
         
         output_data = []
@@ -257,7 +257,7 @@ class TradeAnalyzer:
                 if not calc_details or "Gap" not in calc_details:
                     for line in related_logs:
                         if "Gap:" in line:
-                            match = re.search(r'Gap:\s*([\d.]+).*?MinGap:\s*([\d.]+)', line)
+                            match = re.search(r'Gap:\s*([\d.]+).*?MinPipGap:\s*([\d.]+)', line)
                             if match:
                                 gap_val = float(match.group(1))
                                 req_gap = float(match.group(2))

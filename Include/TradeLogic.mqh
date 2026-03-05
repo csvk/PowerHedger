@@ -62,8 +62,8 @@ void CheckNewEntries()
    bool isFlat = (g_totalBuyLots == 0 && g_totalSellLots == 0);
    if(isFlat && !IsSessionActive()) return; 
 
-   //--- PRD 2.1: MinGapPips calculation
-   double minGap = InsidePipMultiplier * HedgePips;
+   //--- PRD 2.1: MinPipGap calculation
+   double minPipGap = MinPipGapMultiplier * HedgePips;
    
    //--- PRD 2.1: Prioritized strategy invocation (Mutual Exclusion)
    int signal = 0;
@@ -91,9 +91,9 @@ void CheckNewEntries()
    ENUM_MARKET_CONTEXT context = CONTEXT_NEW;
 
    //--- PRD 2.1: Entry Restriction logic - Distance and market scenario
-   if(!IsStrategicEntryAllowed(type, minGap, context)) {
-      PrintFormat("Indicator %s %s signal blocked: Inside/Outside entry conditions not satisfied (MinGap: %.1f pips)", 
-                  strategyName, EnumToString(type), minGap);
+   if(!IsStrategicEntryAllowed(type, minPipGap, context)) {
+      PrintFormat("Indicator %s %s signal blocked: Inside/Outside entry conditions not satisfied (MinPipGap: %.1f pips)", 
+                  strategyName, EnumToString(type), minPipGap);
       return;
    }
 

@@ -53,94 +53,80 @@ bool ClosePartialWithComment(ulong ticket, double volume, string comment)
 //+------------------------------------------------------------------+
 void CheckNewEntries()
 {
-   //--- 0. Debounce: Only one attempt per tick to prevent multiple entries on high volatility
+   //--- 0. Debounce: Only one attempt per tick
    static datetime lastTickTime = 0;
    if(TimeCurrent() == lastTickTime) return;
    lastTickTime = TimeCurrent();
 
-   //--- Determine current market state: Flat or inside an existing hedge (PRD 1.1)
+   //--- Determine current market state: Flat market has Session/Weekday filters (PRD 1.1)
    bool isFlat = (g_totalBuyLots == 0 && g_totalSellLots == 0);
-   bool isInside = false;
-   
+   if(isFlat && !IsSessionActive()) return; 
+
    //--- PRD 2.1: MinGapPips calculation
-   double minGap = InsidePipMultiplier * HedgePips * _Point * 10;
+   double minGap = InsidePipMultiplier * HedgePips;
    
-   //--- Tracking for "Price Trapped" check and proximity filters
-   double highestBuy = -1, lowestSell = -1;
-   bool tooClose = false;
-   double currentAsk = m_symbol.Ask();
-   double currentBid = m_symbol.Bid();
+   //--- PRD 2.1: Prioritized strategy invocation (Mutual Exclusion)
+   int signal = 0;
+   string strategyName = "";
+   
+   if(EnableRandom) {
+      signal = GetRandomSignal();
+      strategyName = "Random";
+   } else {
+      int s1_signal = GetStrategySignal(1);
+      int s2_signal = GetStrategySignal(2);
+      
+      if(PrioritizeStrategy == STRAT_1) {
+         if(s1_signal != 0) { signal = s1_signal; strategyName = S1Name; }
+         else if(s2_signal != 0) { signal = s2_signal; strategyName = S2Name; }
+      } else {
+         if(s2_signal != 0) { signal = s2_signal; strategyName = S2Name; }
+         else if(s1_signal != 0) { signal = s1_signal; strategyName = S1Name; }
+      }
+   }
+   
+   if(signal == 0) return;
 
-   //--- Scan all open positions to determine bounds and current gap
-   for(int i = PositionsTotal() - 1; i >= 0; i--) {
-      if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol) {
-         double openP = m_position.PriceOpen();
+   ENUM_POSITION_TYPE type = (signal == 1) ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
+   ENUM_MARKET_CONTEXT context = CONTEXT_NEW;
+
+   //--- PRD 2.1: Entry Restriction logic - Distance and market scenario
+   if(!IsStrategicEntryAllowed(type, minGap, context)) {
+      PrintFormat("Indicator %s %s signal blocked: Inside/Outside entry conditions not satisfied (MinGap: %.1f pips)", 
+                  strategyName, EnumToString(type), minGap);
+      return;
+   }
+
+   //--- PRD 2.2: Ensure new indicator entry doesn't exceed MaxLots limit
+   double volume = LotSize;
+   double currentVol = (type == POSITION_TYPE_BUY) ? g_totalBuyLots : g_totalSellLots;
+   
+   if((currentVol + volume) <= MaxLots) {
+      //--- PRD 2.5: Dynamic sequence number <N> (Total open positions including new one)
+      //--- Include New/Inside/Outside context in comment
+      int n = CountOpenPositions(type) + 1;
+      string contextStr = "New";
+      if(context == CONTEXT_INSIDE) contextStr = "Inside";
+      else if(context == CONTEXT_OUTSIDE) contextStr = "Outside";
+      
+      string comment = StringFormat("<%d> %s [%s]", n, strategyName, contextStr);
+      
+      bool success = false;
+      if(type == POSITION_TYPE_BUY) success = m_trade.Buy(volume, _Symbol, m_symbol.Ask(), 0, 0, comment);
+      else success = m_trade.Sell(volume, _Symbol, m_symbol.Bid(), 0, 0, comment);
+      
+      if(success) {
+         PrintFormat("Indicator %s signal executed: %s at %.5f", strategyName, comment, (type == POSITION_TYPE_BUY) ? m_symbol.Ask() : m_symbol.Bid());
          
-         //--- 1. Update directional bounds (PRD 2.1)
-         if(m_position.PositionType() == POSITION_TYPE_BUY) {
-            if(highestBuy == -1 || openP > highestBuy) highestBuy = openP;
-         } else {
-            if(lowestSell == -1 || openP < lowestSell) lowestSell = openP;
-         }
-         
-         //--- 2. Filter: Current price must maintain MinGapPips from ANY existing position (PRD 2.1)
-         if(MathAbs(currentAsk - openP) < minGap || MathAbs(currentBid - openP) < minGap) {
-            tooClose = true;
+         //--- PRD 3.5: Handover from squeezing to standard hedging immediately upon successful strategic entry
+         if(g_hedgePoint > 0) {
+            PrintFormat("Squeezing Handover: Strategic entry detected. Resetting Post-Trim Hedge Point (%.5f) for standard handover.", g_hedgePoint);
+            g_hedgePoint = -1;
+            SaveState();
          }
       }
-   }
-
-   //--- PRD 2.1: "Inside a Hedge" definition
-   //--- Price must be trapped between the highest Buy and lowest Sell entry points
-   if(highestBuy != -1 && lowestSell != -1) {
-      if(currentAsk < highestBuy && currentBid > lowestSell) {
-         isInside = true;
-      }
-   }
-   
-   //--- PRD 2.1: Entry Restriction logic
-   if(!isFlat && !isInside) {
-      // Reasoned Logging: Explain why indicators are ignored (PRD 9.1)
-      // PrintFormat("Indicator entry blocked: Market is neither Flat nor Inside a Hedge (Total Buy: %.2f, Total Sell: %.2f)", g_totalBuyLots, g_totalSellLots);
-      return; 
-   }
-   
-   if(isFlat && !IsSessionActive()) {
-      PrintFormat("Indicator entry blocked: Market is Flat but session is inactive (UTC Time: %s)", TimeToString(TimeTradeServer(), TIME_DATE|TIME_MINUTES));
-      return; 
-   }
-   
-   if(tooClose) {
-      PrintFormat("Indicator entry blocked: Price too close to existing position (MinGapRequired: %.1f pips)", minGap / (m_symbol.Point() * 10));
-      return; 
-   }
-
-   //--- PRD 2.1: Invoke strategy signals (Strategy 1 has priority - Mutual Exclusion)
-   int signal = GetRandomSignal(); // Note: Replacement with real indicator logic (PRD 2.1/2.4) pending
-   string keyword = isFlat ? "New Sequence" : "Inside Trade";
-   
-   if(signal != 0) {
-      double volume = LotSize;
-      //--- PRD 2.2: Ensure new indicator entry doesn't exceed MaxLots limit
-      if(signal == 1) {
-         if((g_totalBuyLots + volume) <= MaxLots) {
-            string comment = StringFormat("<%d> %s", g_buySequence++, keyword);
-            if(m_trade.Buy(volume, _Symbol, m_symbol.Ask(), 0, 0, comment)) {
-               PrintFormat("Indicator BUY signal executed: %s at %.5f", comment, m_symbol.Ask());
-            }
-         } else {
-            PrintFormat("Indicator BUY signal blocked: MaxLots limit reached (Current: %.2f, Limit: %.2f)", g_totalBuyLots, MaxLots);
-         }
-      } else if(signal == -1) {
-         if((g_totalSellLots + volume) <= MaxLots) {
-            string comment = StringFormat("<%d> %s", g_sellSequence++, keyword);
-            if(m_trade.Sell(volume, _Symbol, m_symbol.Bid(), 0, 0, comment)) {
-               PrintFormat("Indicator SELL signal executed: %s at %.5f", comment, m_symbol.Bid());
-            }
-         } else {
-            PrintFormat("Indicator SELL signal blocked: MaxLots limit reached (Current: %.2f, Limit: %.2f)", g_totalSellLots, MaxLots);
-         }
-      }
+   } else {
+      PrintFormat("Indicator %s signal blocked: %s side reached MaxLots (%.2f / %.2f)", strategyName, EnumToString(type), currentVol, MaxLots);
    }
 }
 
@@ -330,12 +316,14 @@ void ExecuteHedgeOrReduce(ENUM_POSITION_TYPE hedgeType, double requiredVolume, s
    } else {
       //--- Execute standard or trailing hedge
       if(hedgeType == POSITION_TYPE_BUY) {
-         string comment = StringFormat("<%d> %s", g_buySequence++, keyword);
+         int n = CountOpenPositions(POSITION_TYPE_BUY) + 1;
+         string comment = StringFormat("<%d> %s", n, keyword);
          if(m_trade.Buy(requiredVolume, _Symbol, m_symbol.Ask(), 0, 0, comment)) {
             PrintFormat("Hedge Executed: %s (Vol: %.2f) at %.5f", comment, requiredVolume, m_symbol.Ask());
          }
       } else {
-         string comment = StringFormat("<%d> %s", g_sellSequence++, keyword);
+         int n = CountOpenPositions(POSITION_TYPE_SELL) + 1;
+         string comment = StringFormat("<%d> %s", n, keyword);
          if(m_trade.Sell(requiredVolume, _Symbol, m_symbol.Bid(), 0, 0, comment)) {
             PrintFormat("Hedge Executed: %s (Vol: %.2f) at %.5f", comment, requiredVolume, m_symbol.Bid());
          }
@@ -405,6 +393,30 @@ void ManageOpenPositions()
             }
          }
       }
+   }
+   
+   //--- PRD 3.4: ProfitTally Reset logic
+   //--- Reset if no positions are further than HedgePips from current price
+   bool hasDistantTrade = false;
+   double currentBid = m_symbol.Bid();
+   double currentAsk = m_symbol.Ask();
+   double gapPoints = HedgePips * m_symbol.Point() * 10;
+   
+   for(int i = PositionsTotal() - 1; i >= 0; i--) {
+      if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol) {
+         double openP = m_position.PriceOpen();
+         double dist = MathAbs(openP - ((m_position.PositionType() == POSITION_TYPE_BUY) ? currentBid : currentAsk));
+         if(dist >= gapPoints) {
+            hasDistantTrade = true;
+            break;
+         }
+      }
+   }
+   
+   if(!hasDistantTrade && g_profitTally > 0) {
+      PrintFormat("ProfitTally Reset: No positions remain >= HedgePips (%.1f) away from market. Tally %.2f cleared.", HedgePips, g_profitTally);
+      g_profitTally = 0;
+      SaveState();
    }
 }
 
@@ -545,12 +557,14 @@ void ManageHedgeSqueeze()
             // Standard trigger is based on LOWEST Buy
             for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_BUY) if(stdPoint == -1 || m_position.PriceOpen() < stdPoint) stdPoint = m_position.PriceOpen();
             if(stdPoint != -1) stdPoint -= HedgePips * m_symbol.Point() * 10;
-            if(g_hedgePoint > stdPoint + 0.000001) keyword = "Trailing Hedge"; // Tighter than standard
+            //--- PRD 2.5: Trailing Hedge is at a WORSE (lower for Sell hedge) price than standard
+            if(g_hedgePoint < stdPoint - 0.000001) keyword = "Trailing Hedge"; 
          } else {
             // Standard trigger is based on HIGHEST Sell
             for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_SELL) if(stdPoint == -1 || m_position.PriceOpen() > stdPoint) stdPoint = m_position.PriceOpen();
             if(stdPoint != -1) stdPoint += HedgePips * m_symbol.Point() * 10;
-            if(g_hedgePoint < stdPoint - 0.000001) keyword = "Trailing Hedge"; // Tighter than standard
+            //--- PRD 2.5: Trailing Hedge is at a WORSE (higher for Buy hedge) price than standard
+            if(g_hedgePoint > stdPoint + 0.000001) keyword = "Trailing Hedge";
          }
 
          PrintFormat("Squeeze Trigger Reached: Price at %.5f (Trigger: %.5f). Keyword: %s (Standard Point: %.5f)", 

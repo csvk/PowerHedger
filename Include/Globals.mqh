@@ -21,8 +21,6 @@ CSymbolInfo    m_symbol;         // Symbol properties (Bid, Ask, TickValue) clas
 //--- GLOBAL STATE VARIABLES: Persistent values tracked across ticks and sessions
 double   g_totalBuyLots  = 0;    // Sum of volume for all open Buy positions
 double   g_totalSellLots = 0;    // Sum of volume for all open Sell positions
-int      g_buySequence   = 1;    // Incrementing counter for BUY trade comments (PRD 2.5)
-int      g_sellSequence  = 1;    // Incrementing counter for SELL trade comments (PRD 2.5)
 double   g_profitTally   = 0;    // Persistent bucket for fractional profit left after trimming (PRD 3.4)
 double   g_hedgePoint    = -1;   // Tick-monitored Post-Trim Hedge Price Point (PRD 3.5)
 

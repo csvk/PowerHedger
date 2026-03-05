@@ -51,3 +51,27 @@ enum ENUM_BB_RULE
    BB_TOUCH_OUTSIDE, // Signal when price touches or crosses the outer band
    BB_REVERSAL       // Signal on price rejection towards the midline
 };
+
+//--- Strategy Prioritization (PRD 2.1)
+enum ENUM_STRATEGY_PRIORITY
+{
+   STRAT_1, // Strategy 1 prioritized
+   STRAT_2  // Strategy 2 prioritized
+};
+
+//--- Outside Entry Permission Rules (PRD 2.1)
+enum ENUM_OUTSIDE_ALLOWED
+{
+   OUTSIDE_NO,              // Outside trade not allowed
+   OUTSIDE_BOTH,            // Both sides allowed
+   OUTSIDE_SAME_DIR,        // Only same direction as existing trades
+   OUTSIDE_AGAINST_DIR      // Only opposite direction to existing trades
+};
+
+//--- Market Context for Trade Comments (PRD 2.5)
+enum ENUM_MARKET_CONTEXT
+{
+   CONTEXT_NEW,     // Flat market
+   CONTEXT_INSIDE,  // Between trades
+   CONTEXT_OUTSIDE  // One-sided or outside corridor
+};

@@ -14,15 +14,12 @@
 
 //+------------------------------------------------------------------+
 //| PRD 2.3: Calculate Volumetric Balances                           |
-//| Scans open positions to sync directional volume and sequence.    |
+//| Scans open positions to sync directional volume.                 |
 //+------------------------------------------------------------------+
 void CalculateBalances()
 {
    g_totalBuyLots = 0;
    g_totalSellLots = 0;
-   
-   bool hasBuy = false;
-   bool hasSell = false;
    
    //--- Iterate through all open positions for the current magic number and symbol
    for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -31,23 +28,151 @@ void CalculateBalances()
       {
          if(m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol)
          {
-            if(m_position.PositionType() == POSITION_TYPE_BUY)
-            {
-               g_totalBuyLots += m_position.Volume();
-               hasBuy = true;
-            }
-            else if(m_position.PositionType() == POSITION_TYPE_SELL)
-            {
-               g_totalSellLots += m_position.Volume();
-               hasSell = true;
-            }
+            if(m_position.PositionType() == POSITION_TYPE_BUY) g_totalBuyLots += m_position.Volume();
+            else if(m_position.PositionType() == POSITION_TYPE_SELL) g_totalSellLots += m_position.Volume();
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Count active open positions in a specific direction      |
+//| PRD 2.5: Used for dynamic <N> serial numbers                     |
+//+------------------------------------------------------------------+
+int CountOpenPositions(ENUM_POSITION_TYPE type)
+{
+   int count = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == type) count++;
+   }
+   return count;
+}
+
+//+------------------------------------------------------------------+
+//| PRD 2.1: Check if new signalled trade is allowed based on        |
+//| Inside/Outside market conditions and distance rules.             |
+//+------------------------------------------------------------------+
+bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minGapPips, ENUM_MARKET_CONTEXT &outContext)
+{
+   double lowestBuy = -1, highestBuy = -1;
+   double lowestSell = -1, highestSell = -1;
+   
+   //--- Identify boundaries of existing positions
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol)
+      {
+         double openP = m_position.PriceOpen();
+         if(m_position.PositionType() == POSITION_TYPE_BUY)
+         {
+            if(lowestBuy == -1 || openP < lowestBuy) lowestBuy = openP;
+            if(highestBuy == -1 || openP > highestBuy) highestBuy = openP;
+         }
+         else
+         {
+            if(lowestSell == -1 || openP < lowestSell) lowestSell = openP;
+            if(highestSell == -1 || openP > highestSell) highestSell = openP;
          }
       }
    }
    
-   //--- PRD 2.5: Reset sequence counters to 1 if no positions remain in that direction
-   if(!hasBuy) g_buySequence = 1;
-   if(!hasSell) g_sellSequence = 1;
+   bool hasBuy = (lowestBuy != -1);
+   bool hasSell = (lowestSell != -1);
+   
+   if(!hasBuy && !hasSell) {
+      outContext = CONTEXT_NEW;
+      return true; 
+   }
+
+   double ask = m_symbol.Ask();
+   double bid = m_symbol.Bid();
+   double currentPrice = (signalType == POSITION_TYPE_BUY) ? ask : bid;
+   
+   //--- SCENARIO 1: Inside Entry (PRD 2.1.a)
+   //--- Price is between Buy and Sell trades
+   if(hasBuy && hasSell)
+   {
+      double innerBuy = lowestBuy;  // Assuming Sell is below
+      double innerSell = highestSell; // Assuming Buy is above
+      
+      // Correct for relative orientation
+      if(highestBuy < lowestSell) { innerBuy = highestBuy; innerSell = lowestSell; }
+      else if(highestSell < lowestBuy) { innerSell = highestSell; innerBuy = lowestBuy; }
+      
+      // Check if price is between the "inner" boundaries
+      bool isInside = false;
+      if(innerBuy < innerSell) isInside = (currentPrice > innerBuy && currentPrice < innerSell);
+      else isInside = (currentPrice > innerSell && currentPrice < innerBuy);
+      
+      if(isInside) {
+         // PRD 2.1: Distance must be checked against both Buy and Sell when open on both sides
+         double distToBuy = MathAbs(currentPrice - innerBuy);
+         double distToSell = MathAbs(currentPrice - innerSell);
+         double minGapPoints = minGapPips * m_symbol.Point() * 10;
+         
+         if(distToBuy < minGapPoints || distToSell < minGapPoints) return false;
+         
+         outContext = CONTEXT_INSIDE;
+         return true;
+      }
+      
+      // If not inside, we treat it as "Near" which effectively follows Scen 2 logic down below
+   }
+   
+   //--- SCENARIO 2: Outside Entry (PRD 2.1.b)
+   //--- Only Buy or only Sell open, OR price is outside the corridor
+   if((hasBuy && !hasSell) || (!hasBuy && hasSell) || (hasBuy && hasSell))
+   {
+      if(OutsideAllowed == OUTSIDE_NO) return false;
+      
+      // Find nearest position to current market price
+      double nearestP = -1;
+      double minDist = -1;
+      ENUM_POSITION_TYPE nearestType = (ENUM_POSITION_TYPE)-1;
+      
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+      {
+         if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol)
+         {
+            double dist = MathAbs(currentPrice - m_position.PriceOpen());
+            if(minDist == -1 || dist < minDist)
+            {
+               minDist = dist;
+               nearestP = m_position.PriceOpen();
+               nearestType = m_position.PositionType();
+            }
+         }
+      }
+      
+      if(nearestP == -1) { outContext = CONTEXT_NEW; return true; } // Should not happen if hasBuy/hasSell
+      
+      // Condition 1: Nearest must be in loss
+      bool nearestInLoss = (nearestType == POSITION_TYPE_BUY) ? (bid < nearestP) : (ask > nearestP);
+      if(!nearestInLoss) return false;
+      
+      // Condition 2: MinPipGaps away
+      if(minDist < minGapPips * m_symbol.Point() * 10) return false;
+      
+      // Condition 3: OutsideAllowed enum filters
+      bool isAllowed = false;
+      if(OutsideAllowed == OUTSIDE_BOTH) isAllowed = true;
+      else {
+         bool isSameDir = (signalType == nearestType);
+         if(OutsideAllowed == OUTSIDE_SAME_DIR && isSameDir) isAllowed = true;
+         else if(OutsideAllowed == OUTSIDE_AGAINST_DIR && !isSameDir) isAllowed = true;
+      }
+      
+      if(isAllowed) {
+         outContext = CONTEXT_OUTSIDE;
+         return true;
+      }
+      
+      return false;
+   }
+   
+   outContext = CONTEXT_NEW;
+   return true; // Flat market case
 }
 
 //+------------------------------------------------------------------+

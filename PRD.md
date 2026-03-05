@@ -10,15 +10,29 @@ The EA supports trading in flat markets or "from the inside" of a hedge when the
 
 ### 2.1 Entry Conditions & Mutual Exclusion
 
-New indicator-based positions can only be entered under two specific market conditions:
+New indicator-based positions can only be entered under specific market conditions:
 - **Flat Market**: There are currently zero open positions on the traded pair. Entries are subject to Session and Weekday filters.
-- **Inside a Hedge**: The price is currently trapped between two hedged positions (i.e., at least one active Buy and one active Sell). Session and Weekday filters do **not** apply to these entries.
+- **Strategic Entry (Inside or Outside)**: New signalled trades are permitted under the following conditions:
+  - **Inside Entry**: Allowed when the current market price is between existing Buy and Sell trades (i.e., both directions have open positions).
+  - **Outside Entry**: Allowed when positions are open in only one direction (completely unbalanced). In this case, an entry is allowed only if:
+    - The position nearest to the current market price is currently in a loss.
+    - The current market price is at least `MinGapPips` away from that nearest position.
+    - The entry direction is permitted by the `OutsideAllowed` parameter.
+- Session and Weekday filters do **not** apply to these subsequent entries.
 
 **Entry Rules**:
-- **MinGapPips**: When trading inside a hedge, the pip distance between the current market price and the nearest open trades in both opposite directions (the nearest Buy and the nearest Sell) must be at least the value of the calculated `MinGapPips`.
+- **MinGapPips**: The minimum pip distance that must be maintained between the current market price and the nearest open trade in either direction. 
+  - If positions are open on both sides (Buy and Sell), the distance must be checked against both.
+  - If positions are open on only one side, it is checked against that side.
   - **Calculation**: `MinGapPips = InsidePipMultiplier * HedgePips`.
-- **Two Strategies**: The EA runs two independent sets of indicator parameters (Strategy 1 and Strategy 2) simultaneously to identify entries.
-- **Mutual Exclusion**: At any given moment, if a new entry is permitted by market conditions, only one strategy can trigger an entry. If both strategies generate a signal simultaneously, the EA prioritizes Strategy 1.
+- **Strategies**: The EA runs multiple independent strategies simultaneously to identify entries:
+  - **Strategy 1 (Trend)**: Default name "Trend".
+  - **Strategy 2 (Reversal)**: Default name "Reversal".
+  - **Random Signal Generator**: A placeholder strategy named "Random". 
+    - **Default Mode**: For testing purposes, "Random" is the default mode. 
+    - **Disabling**: Once Strategy 1 and Strategy 2 are properly defined/configured, the Random generator should be disabled.
+    - **Strategy Naming**: It does not require an input name variable.
+- **Mutual Exclusion**: At any given moment, if a new entry is permitted by market conditions, only one strategy can trigger an entry. If Random is enabled, it takes priority. Else, if multiple strategies generate a signal simultaneously, the EA prioritizes the strategy selected in the `PrioritizeStrategy` parameter. If both Strategy 1 and Strategy 2 give a signal, only the prioritized one is used.
 
 ### 2.2 Position Sizing
 
@@ -48,21 +62,24 @@ New indicator-based positions can only be entered under two specific market cond
 - **Abstraction**: The entry signal generation logic must be modularized. The core EA trade management and hedging logic should be decoupled from the specific indicator-based trigger.
 - **Future-Proofing**: Modifications or exports of entry logic to external triggers in the future must not require changes to the core EA logic.
 
-### 2.5 Trade Comments and Sequence Tracking
+- To facilitate trade monitoring, every order must include a specific comment formatted as: `<N> [Keyword/Strategy]`.
 
-To facilitate trade monitoring, every order must include a specific comment formatted as: `<N> [Keyword]`.
+- **Sequence Counters (Open Position Count)**: 
+  - The serial number `<N>` represents the total number of positions currently open in that direction, including the new position.
+  - **Example**: 
+    - First trade in any direction: `<1>`.
+    - If two more trades are opened: `<2>` and `<3>`.
+    - If trade `<3>` is closed and another trade is opened in the same direction, the new trade is labeled `<3>`.
+  - This counter tracks only active open positions at the moment of trade entry, irrespective of the reason for the trade.
 
-- **Sequence Counters**: The EA must maintain independent sequence counters for BUY and SELL directions.
-- **Rules**:
-  - **Flat Market Entry**: The first trade entered based on indicators in a flat market must have the comment: `<1> New Sequence`.
-  - **Hedge Entry**: Any trade executed as a defensive hedge (balancing trade) or any subsequent trade in the same direction must have the keyword `Hedge`, unless opened during a "Hedge Squeeze" (Section 3.5).
-    - **Trailing Hedge**: If a hedge is entered while a Post-Trim Hedge Point is active (Squeezing) and the current squeezed point is better (tighter) than the standard trigger point defined in Section 2.3, the keyword must be `Trailing Hedge`. If the squeeze has reached the standard trigger point, the keyword remains `Hedge`.
-    - Example: If it's the first SELL trade balancing a BUY during a squeeze, it should be `<1> Trailing Hedge`.
-    - **Sequence Maintenance**: The sequence number `<N>` must be maintained and incremented even for Trailing Hedges.
-  - **Subsequent Trades**: Each subsequent trade in the same direction increments `N`.
-  - **Inside Trade**: Indicator-staged entries that occur while "Inside a Hedge" must use the keyword `Inside Trade`.
-    - Example: `<2> Inside Trade`.
-  - **Reset Logic**: When all positions in a specific direction are closed, the sequence counter for that direction must reset to 1.
+- **Keywords and Strategy Names**:
+  - **Flat Market Entry**: The first trade entered in a flat market uses the triggering strategy's name with context "New" (e.g., `<1> Trend [New]`).
+  - **Subsequent Strategic Entry**: Entries triggered by a strategy while other positions are open use the strategy name and the market context:
+    - **Inside**: Signal occurred between existing trades (e.g., `<2> Trend [Inside]`).
+    - **Outside**: Signal occurred outside existing trades or when one-sided (e.g., `<3> Reversal [Outside]`).
+  - **Hedge Entry**: Any trade executed as a defensive hedge (balancing trade) uses the keyword `Hedge`, unless opened during a "Hedge Squeeze" (Section 3.5).
+    - **Trailing Hedge**: If a hedge is entered while a Post-Trim Hedge Point is active (Squeezing), the keyword must be `Trailing Hedge`. 
+      - **Price Difference**: A Trailing Hedge (during squeezing) is always at a **worse** (further) price than the standard trigger point defined in Section 2.3. As the price trails towards the standard point, the keyword remains `Trailing Hedge` until it reaches the standard point, where it reverts to `Hedge`.
 - **Trimming/Reduction Comments**:
   - Partial closures for trimming must use the comment: `Trim`.
   - Theoretical partial closures during trailing must use the comment: `Intermediate Trim`.
@@ -100,6 +117,7 @@ Profits from closed positions are distributed according to the `KeepProfitPercen
   - **Path**: `MQL5\Files\` (per MT5 sandbox rules).
   - **Update Frequency**: The file must be updated whenever `ProfitTally` or `PostTrimHedgePricePoint` changes.
   - **Safety**: Updates must be handled carefully to avoid data corruption of other variables in the file.
+- **ProfitTally Reset**: If there are no open positions at least `HedgePips` away from the current market price (on either side), the `ProfitTally` must be reset to 0. 
 - **Startup Logic**: Upon initialization, the EA must check for the existence of its `<MagicNumber>.json` file and load the stored values.
 
 ### 3.5 Squeezing the Hedge (Post-Trim Hedge Adjustment)
@@ -107,7 +125,8 @@ Profits from closed positions are distributed according to the `KeepProfitPercen
 - **Post-Trim Balance Check**: If the volume remains unbalanced after trimming, a temporary `PostTrimHedgePricePoint` is established.
 - **Calculation**: Set at `HedgePips` from the exit price of the closed profitable trade, in the direction of the required hedge.
 - **Trailing Adjustment (Squeezing)**: If the price moves away from this point, the `PostTrimHedgePricePoint` must dynamically trail the price by the distance defined in `SqueezePips`.
-- **Handover**: This adjustment continues until the pip gap between the price point and the nearest opposite trade reduces to `HedgePips`, at which point standard Hedging Logic (Section 2.3) takes over.
+- **Recalculation with New Entries**: If a new strategic entry occurs while a `PostTrimHedgePricePoint` is active, the hedge price point must be recalculated. It is tracked based on the current unbalanced volume and the entry price of the nearest opposite trade(s) to ensure the hedge trigger remains accurate relative to the updated balance.
+- **Handover to Standard Hedging**: If a new strategic entry occurs while a `PostTrimHedgePricePoint` (Squeezing) is active, the squeezing logic must immediately hand over to standard hedging logic (Section 2.3). The hedge trigger point is then recalculated based on `HedgePips` from the nearest position.
 - **Inactive State**: When no Post-Trim Hedge is required, the value in the JSON file should be maintained as a negative value.
 
 ## 4. Indicator Logic
@@ -144,34 +163,42 @@ Instead of individual inputs, EMA periods are driven by a single `EMAPeriods` En
 
 ## 5. EA Input Parameters (Single Source of Truth)
 
-#### Group 1: Position Sizing & Core Hedging
+#### Group: Position Sizing & Core Hedging
 - **LotSize (Double)**: Fixed lot size for standard entries.
 - **MaxLots (Double)**: Maximum directional lot limit.
 - **HedgePips (Double)**: Trigger distance for defensive hedges.
 - **InsidePipMultiplier (Double)**: Multiplier used to calculate `MinGapPips` (`MinGapPips = InsidePipMultiplier * HedgePips`).
+- **PrioritizeStrategy (Enum)**: Strategy 1, Strategy 2. When both strategies give a signal, the one which is prioritized will be used.
+- **OutsideAllowed (Enum)**: No, Both Sides, Same Direction, Against Direction. 
+  - `No`: Outside trade is not allowed at all.
+  - `Both Sides`: Both buy and sell allowed.
+  - `Same Direction`: Only allowed in the same direction of existing trades.
+  - `Against Direction`: Only allowed in opposite direction of existing trades.
 - **MagicNumber (Int)**: Unique identifier for the EA instance.
 
-#### Group 2: Trade Management & Trimming
+#### Group: Trade Management & Trimming
 - **LockProfitPips (Double)**: Profit level to trigger trailing and theoretical trimming.
 - **TrailingStopPips (Double)**: Distance to trail price.
 - **KeepProfitPercent (Double 0.0-1.0)**: Ratio of profit to retain vs. use for trimming.
 - **IntermediateTrimPips (Double)**: Trailing distance required to trigger subsequent intermediate trims.
 - **SqueezePips (Double)**: Distance used to trail the Post-Trim Hedge Price Point.
 
-#### Group 3: Market/Session Filters (Flat Market Only)
+#### Group: Market/Session Filters (Flat Market Only)
 - **SydneyActive (22:00 - 07:00 UTC) (Bool)**: Enable/Disable entries during Sydney session.
 - **TokyoActive (00:00 - 09:00 UTC) (Bool)**: Enable/Disable entries during Tokyo session.
 - **LondonActive (08:00 - 17:00 UTC) (Bool)**: Enable/Disable entries during London session.
 - **NewYorkActive (13:00 - 22:00 UTC) (Bool)**: Enable/Disable entries during New York session.
 - **MondayActive (Bool)** to **FridayActive (Bool)**: Individual weekday toggles.
 
-#### Group 4: Strategy 1 Indicators
+#### Group: Strategy 1 Indicators (Trend)
+- **S1Name (String)**: Default "Trend".
 - **S1UseRSI (Bool)**, **S1RSITimeframe (Enum)**, **S1RSIPeriod (Int)**, **S1RSISellLevel (Double)**.
 - **S1UseEMA (Bool)**, **S1EMATimeframe (Enum)**, **S1EMAPeriods (Enum)**, **S1EMATrendRule (Enum)**.
 - **S1UseADX (Bool)**, **S1ADXTimeframe (Enum)**, **S1ADXPeriod (Int)**, **S1ADXThreshold (Double)**, **S1ADXTrendRule (Enum)**.
 - **S1UseBB (Bool)**, **S1BBTimeframe (Enum)**, **S1BBDeviations (Double)**, **S1BBRule (Enum)**.
 
-#### Group 5: Strategy 2 Indicators
+#### Group: Strategy 2 Indicators (Reversal)
+- **S2Name (String)**: Default "Reversal".
 - (Duplicate of Group 4 with **S2** prefix).
 
 ## 7. Genetic Optimization Considerations

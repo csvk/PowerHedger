@@ -17,6 +17,10 @@
 //| PRD 3.4: Save State to JSON File                                 |
 //| Stores critical values to enable recovery after terminal restart.|
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| PRD 3.4: Save State to JSON File                                 |
+//| Stores critical values to enable recovery after terminal restart.|
+//+------------------------------------------------------------------+
 void SaveState()
 {
    //--- PRD 7.1: optimization safety (Do not write during genetic optimization)
@@ -28,10 +32,10 @@ void SaveState()
    //--- PRD 7.2: Use agent-local folder for Strategy Tester agents
    if(!MQLInfoInteger(MQL_TESTER)) flags |= FILE_COMMON; 
    
-   //--- Write Tally, HedgePoint, and Sequence counters to string
+   //--- Write Tally, HedgePoint, and Last Reconciled Deal to string
    if(file.Open(g_fileName, flags)) {
-      file.WriteString(StringFormat("{\"Tally\":%.2f,\"HedgePoint\":%.5f,\"BuySeq\":%d,\"SellSeq\":%d,\"LastDeal\":%I64u}", 
-                                     g_profitTally, g_hedgePoint, g_buySequence, g_sellSequence, g_lastProcessedDeal));
+      file.WriteString(StringFormat("{\"Tally\":%.2f,\"HedgePoint\":%.5f,\"LastDeal\":%I64u}", 
+                                     g_profitTally, g_hedgePoint, g_lastProcessedDeal));
       file.Close();
    }
 }
@@ -54,14 +58,10 @@ void LoadState()
       //--- Simple manual parsing of the JSON structure
       int pTally = StringFind(content, "\"Tally\":");
       int pHedge = StringFind(content, "\"HedgePoint\":");
-      int pBuy = StringFind(content, "\"BuySeq\":");
-      int pSell = StringFind(content, "\"SellSeq\":");
       int pDeal = StringFind(content, "\"LastDeal\":");
       
       if(pTally >= 0) g_profitTally = StringToDouble(StringSubstr(content, pTally + 8));
       if(pHedge >= 0) g_hedgePoint = StringToDouble(StringSubstr(content, pHedge + 13));
-      if(pBuy >= 0) g_buySequence = (int)StringToInteger(StringSubstr(content, pBuy + 9));
-      if(pSell >= 0) g_sellSequence = (int)StringToInteger(StringSubstr(content, pSell + 10));
       if(pDeal >= 0) g_lastProcessedDeal = (ulong)StringToInteger(StringSubstr(content, pDeal + 11));
    }
 }

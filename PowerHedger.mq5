@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 /*
    Expert Advisor: PowerHedger
-   Description: Advanced MT5 Hedging & Recovery EA based on the POW Banker strategy.
+   Description: Advanced MT5 Hedging & Recovery EA based on the indicator based entry strategy.
    Logic: Combines indicator-based entries with a mathematical hedging and trimming system.
    PRD Alignment: Strictly follows the Product Requirements Document (PRD) for version 1.01.
 */

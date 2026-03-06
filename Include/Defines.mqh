@@ -38,18 +38,37 @@ enum ENUM_EMA_SETS
    EMA_P11  // 50 - 100 - 200 (Long-term Trend)
 };
 
-//--- Indicator Trend Rules logic (PRD 1.8 Alignment)
-enum ENUM_TREND_RULE
+//--- PRD 5.6: Internal Indicator Signal States for Matrix Evaluation
+enum ENUM_IND_SIGNAL
 {
-   RULE_CROSS_LEVEL, // Signal on level crossover (e.g., RSI 70/30, ADX 25)
-   RULE_ALIGNMENT   // Signal on stacked moving average alignment
+   IND_BUY,      // Logic confirms Buy
+   IND_SELL,     // Logic confirms Sell
+   IND_PASS,     // Ranging condition met (Allows trade if direction provided by others)
+   IND_NEUTRAL   // Condition not met (Blocks trade entry)
 };
 
-//--- Bollinger Band Interaction Rules
-enum ENUM_BB_RULE
+//--- EMA Trend Rules (PRD 5.6)
+enum ENUM_EMA_TREND_RULE
 {
-   BB_TOUCH_OUTSIDE, // Signal when price touches or crosses the outer band
-   BB_REVERSAL       // Signal on price rejection towards the midline
+   EMA_WITH_TREND,    // Trade with Trend
+   EMA_AGAINST_TREND, // Trade against Trend
+   EMA_RANGING        // Trade when Ranging
+};
+
+//--- ADX Trend Rules (PRD 5.6)
+enum ENUM_ADX_TREND_RULE
+{
+   ADX_WITH_TREND,               // Trade with Trend
+   ADX_WITH_TREND_AVOID_EXTREME, // Trade with Trend but avoid Extreme
+   ADX_AGAINST_TREND,            // Trade against Trend
+   ADX_RANGING                   // Trade when Ranging
+};
+
+//--- BB Trend Rules (PRD 5.6)
+enum ENUM_BB_TREND_RULE
+{
+   BB_AVOID_EXTREME_TREND, // Avoid Extreme Trend
+   BB_AGAINST_TREND        // Trade against Trend
 };
 
 //--- Strategy Prioritization (PRD 2.1)

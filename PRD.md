@@ -2,7 +2,7 @@
 
 ## 1. Product Overview
 
-This Expert Advisor (EA) for MetaTrader 5 automates an advanced hedging and recovery strategy designed to systematically lock in profit and reduce drawdowns by trimming losing positions. It combines strict, dynamic mathematical trade management with entry filters derived from the POW Banker strategy (RSI, EMA, ADX, and Bollinger Bands).
+This Expert Advisor (EA) for MetaTrader 5 automates an advanced hedging and recovery strategy designed to systematically lock in profit and reduce drawdowns by trimming losing positions. It combines strict, dynamic mathematical trade management with entry filters derived from the indicator based entry strategy (RSI, EMA, ADX, and Bollinger Bands).
 
 The EA supports trading in flat markets or "from the inside" of a hedge when the price is trapped between long and short positions. To provide maximum flexibility, the EA runs two independent entry strategies concurrently, executing precise market orders to perfectly balance exposure when risk thresholds are breached.
 
@@ -194,12 +194,49 @@ Instead of individual inputs, EMA periods are driven by a single `EMAPeriods` En
 - **S1Name (String)**: Default "Trend".
 - **S1UseRSI (Bool)**, **S1RSITimeframe (Enum)**, **S1RSIPeriod (Int)**, **S1RSISellLevel (Double)**.
 - **S1UseEMA (Bool)**, **S1EMATimeframe (Enum)**, **S1EMAPeriods (Enum)**, **S1EMATrendRule (Enum)**.
-- **S1UseADX (Bool)**, **S1ADXTimeframe (Enum)**, **S1ADXPeriod (Int)**, **S1ADXThreshold (Double)**, **S1ADXTrendRule (Enum)**.
-- **S1UseBB (Bool)**, **S1BBTimeframe (Enum)**, **S1BBDeviations (Double)**, **S1BBRule (Enum)**.
+- **S1UseADX (Bool)**, **S1ADXTimeframe (Enum)**, **S1ADXPeriod (Int)**, **S1ADXTrendLevel (Double)**, **S1ADXExtremeLevel (Double)**, **S1ADXRangeLevel (Double)**, **S1ADXTrendRule (Enum)**.
+- **S1UseBB (Bool)**, **S1BBTimeframe (Enum)**, **S1BBDeviations (Double)**, **S1BBBufferPips (Double)**, **S1BBRule (Enum)**.
 
-#### Group: Strategy 2 Indicators (Reversal)
-- **S2Name (String)**: Default "Reversal".
-- (Duplicate of Group 4 with **S2** prefix).
+- (Duplicate of Group 193 with **S2** prefix).
+
+### 5.6 Indicator Logic & Combination Matrix
+
+The EA uses a "Universal Alignment" principle. 
+1.  **Strict Rule Alignment**: If an indicator rule is directional (`WITH_TREND`, `AGAINST_TREND`, `AVOID_EXTREME`), it must produce the required direction. If it doesn't, it returns `NEUTRAL`, which **blocks** the trade.
+2.  **Pass Allowance**: Only rules explicitly defined as `RANGING` can return a `PASS` state. `PASS` allows the trade to proceed if **other** indicators provide a clear direction.
+
+#### Individual Indicator Outputs
+| Indicator | Selected Rule | Result: BUY | Result: SELL | Result: PASS | Result: NEUTRAL |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **RSI** | *N/A* | Crossover < (100-SellLevel) | Crossover > SellLevel | N/A | Else (Blocks) |
+| **EMA** | `WITH_TREND` | Fast > Mid > Slow | Fast < Mid < Slow | N/A | Else (Blocks) |
+| **EMA** | `AGAINST_TREND` | Fast < Mid < Slow | Fast > Mid > Slow | N/A | Else (Blocks) |
+| **EMA** | `RANGING` | N/A | N/A | Not Aligned | Aligned (Blocks) |
+| **ADX** | `WITH_TREND` | ADX > Trend, +DI > -DI | ADX > Trend, -DI > +DI | N/A | Else (Blocks) |
+| **ADX** | `AVOID_EXTREME` | Extreme > ADX > Trend, +DI > -DI | Extreme > ADX > Trend, -DI > +DI | N/A | Else (Blocks) |
+| **ADX** | `AGAINST_TREND` | ADX > Extreme, -DI > +DI | ADX > Extreme, +DI > -DI | N/A | Else (Blocks) |
+| **ADX** | `RANGING` | N/A | N/A | ADX < Range | Else (Blocks) |
+| **BB** | `AVOID_EXTREME` | Price < Upper - Buffer | Price > Lower + Buffer | N/A | Else (Blocks) |
+| **BB** | `AGAINST_TREND` | Price <= Lower Band | Price >= Upper Band | N/A | Else (Blocks) |
+
+#### Combination Matrix (Examples)
+*Note: Indicators set to `Use = False` are ignored.*
+
+| Active Indicators | RSI Output | EMA Output | ADX Output | BB Output | Final Action | Reason |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **RSI (Directional)** | Buy | *N/A* | *N/A* | *N/A* | **BUY** | Single indicator triggered |
+| **RSI + EMA (WithTrend)** | Buy | Neutral | *N/A* | *N/A* | **No Trade** | EMA blocks direction (Neutral) |
+| **RSI + EMA (Ranging)** | Buy | **PASS** | *N/A* | *N/A* | **BUY** | EMA confirms range, RSI gives direction |
+| **EMA(R) + ADX(R)** | *N/A* | **PASS** | **PASS** | *N/A* | **No Trade** | No indicator provided a BUY/SELL signal |
+| **EMA(R) + ADX(W)** | *N/A* | **PASS** | Buy | *N/A* | **BUY** | ADX provides direction, EMA confirms range |
+| **RSI + EMA(W) + ADX(R)** | Buy | Buy | **PASS** | *N/A* | **BUY** | Directional consensus + Range confirmation |
+
+**Directional Determination Policy**:
+1.  Collect output from all `Use = True` indicators.
+2.  If any indicator returns `NEUTRAL` (failed directional condition), discard signal.
+3.  If any indicators return `BUY` and others return `SELL`, discard signal (Conflict).
+4.  At least one indicator must provide a `BUY` or `SELL` output (All `PASS` = No Trade).
+5.  A signal is only valid if all non-pass outputs are in the same direction.
 
 ## 7. Genetic Optimization Considerations
 

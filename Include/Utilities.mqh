@@ -225,39 +225,54 @@ bool IsSessionActive()
 }
 
 //+------------------------------------------------------------------+
-//| PRD 4: Core Strategy Logic - Generates trade signals             |
-//| Processes RSI, EMA alignment, ADX trend, and Bollinger Bands.    |
+//| PRD 4, 5.6: Core Strategy Logic - Generates trade signals        |
+//| Enforces Universal Alignment Matrix across enabled indicators.   |
 //+------------------------------------------------------------------+
 int GetStrategySignal(int strategyNum)
 {
    //--- Local mappings for the requested strategy index (1 or 2)
    bool useRSI, useEMA, useADX, useBB;
    ENUM_TF_OPTIONS tfRSI, tfEMA, tfADX, tfBB;
-   int rsiPeriod, adxPeriod;
-   double rsiSellLevel, adxThreshold, bbDev;
+   int rsiPeriod, adxPeriod, bbPeriod = 20; // Standard BB Period
+   double rsiSellLevel, bbDev;
    ENUM_EMA_SETS emaSet;
-   ENUM_TREND_RULE emaRule, adxRule;
-   ENUM_BB_RULE bbRule;
+   ENUM_EMA_TREND_RULE emaRule;
+   ENUM_ADX_TREND_RULE adxRule;
+   ENUM_BB_TREND_RULE bbRule;
+   
+   //--- Strategy-specific thresholds
+   double adxTrendLevel, adxExtremeLevel, adxRangeLevel, bbBufferPips;
    
    if(strategyNum == 1) {
       useRSI = S1UseRSI; tfRSI = S1RSITimeframe; rsiPeriod = S1RSIPeriod; rsiSellLevel = S1RSISellLevel;
       useEMA = S1UseEMA; tfEMA = S1EMATimeframe; emaSet = S1EMAPeriods; emaRule = S1EMATrendRule;
-      useADX = S1UseADX; tfADX = S1ADXTimeframe; adxPeriod = S1ADXPeriod; adxThreshold = S1ADXThreshold; adxRule = S1ADXTrendRule;
+      useADX = S1UseADX; tfADX = S1ADXTimeframe; adxPeriod = S1ADXPeriod; adxRule = S1ADXTrendRule;
       useBB = S1UseBB; tfBB = S1BBTimeframe; bbDev = S1BBDeviations; bbRule = S1BBRule;
+      
+      adxTrendLevel   = S1ADXTrendLevel;
+      adxExtremeLevel = S1ADXExtremeLevel;
+      adxRangeLevel   = S1ADXRangeLevel;
+      bbBufferPips    = S1BBBufferPips;
    } else {
       useRSI = S2UseRSI; tfRSI = S2RSITimeframe; rsiPeriod = S2RSIPeriod; rsiSellLevel = S2RSISellLevel;
       useEMA = S2UseEMA; tfEMA = S2EMATimeframe; emaSet = S2EMAPeriods; emaRule = S2EMATrendRule;
-      useADX = S2UseADX; tfADX = S2ADXTimeframe; adxPeriod = S2ADXPeriod; adxThreshold = S2ADXThreshold; adxRule = S2ADXTrendRule;
+      useADX = S2UseADX; tfADX = S2ADXTimeframe; adxPeriod = S2ADXPeriod; adxRule = S2ADXTrendRule;
       useBB = S2UseBB; tfBB = S2BBTimeframe; bbDev = S2BBDeviations; bbRule = S2BBRule;
+      
+      adxTrendLevel   = S2ADXTrendLevel;
+      adxExtremeLevel = S2ADXExtremeLevel;
+      adxRangeLevel   = S2ADXRangeLevel;
+      bbBufferPips    = S2BBBufferPips;
    }
 
-   bool buySignal = true;
-   bool sellSignal = true;
+   //--- Signal tracking for matrix evaluation
+   ENUM_IND_SIGNAL rsiSig = IND_PASS, emaSig = IND_PASS, adxSig = IND_PASS, bbSig = IND_PASS;
    bool anyActive = false;
 
-   //--- PRD 4: RSI Component
+   //--- PRD 4: RSI Component (Directional Only)
    if(useRSI) {
       anyActive = true;
+      rsiSig = IND_NEUTRAL; // Default to neutral/block
       int h = (strategyNum == 1) ? g_hRSI1 : g_hRSI2;
       if(h == INVALID_HANDLE) {
          h = iRSI(_Symbol, (ENUM_TIMEFRAMES)tfRSI, rsiPeriod, PRICE_CLOSE);
@@ -265,15 +280,15 @@ int GetStrategySignal(int strategyNum)
       }
       double rsi[];
       if(CopyBuffer(h, 0, 0, 2, rsi) == 2) {
-         //--- Level crossover logic
-         if(!(rsi[0] < (100 - rsiSellLevel) && rsi[1] >= (100 - rsiSellLevel))) buySignal = false;
-         if(!(rsi[0] > rsiSellLevel && rsi[1] <= rsiSellLevel)) sellSignal = false;
-      } else { buySignal = false; sellSignal = false; }
+         if(rsi[0] < (100 - rsiSellLevel) && rsi[1] >= (100 - rsiSellLevel)) rsiSig = IND_BUY;
+         else if(rsi[0] > rsiSellLevel && rsi[1] <= rsiSellLevel) rsiSig = IND_SELL;
+      }
    }
 
-   //--- PRD 4: EMA Component (Stacked Alignment)
+   //--- PRD 4, 5.6: EMA Component (Trend or Ranging)
    if(useEMA) {
       anyActive = true;
+      emaSig = IND_NEUTRAL;
       int f, m, s;
       GetEMAPeriods(emaSet, f, m, s);
       int hf = (strategyNum == 1) ? g_hEMA1_F : g_hEMA2_F;
@@ -295,15 +310,27 @@ int GetStrategySignal(int strategyNum)
       
       double emaF[], emaM[], emaS[];
       if(CopyBuffer(hf, 0, 0, 1, emaF) == 1 && CopyBuffer(hm, 0, 0, 1, emaM) == 1 && CopyBuffer(hs, 0, 0, 1, emaS) == 1) {
-         //--- Buy: Fast > Medium > Slow | Sell: Fast < Medium < Slow
-         if(!(emaF[0] > emaM[0] && emaM[0] > emaS[0])) buySignal = false;
-         if(!(emaF[0] < emaM[0] && emaM[0] < emaS[0])) sellSignal = false;
-      } else { buySignal = false; sellSignal = false; }
+         bool isBullTrend = (emaF[0] > emaM[0] && emaM[0] > emaS[0]);
+         bool isBearTrend = (emaF[0] < emaM[0] && emaM[0] < emaS[0]);
+         
+         if(emaRule == EMA_WITH_TREND) {
+            if(isBullTrend) emaSig = IND_BUY;
+            else if(isBearTrend) emaSig = IND_SELL;
+         }
+         else if(emaRule == EMA_AGAINST_TREND) {
+            if(isBullTrend) emaSig = IND_SELL;
+            else if(isBearTrend) emaSig = IND_BUY;
+         }
+         else if(emaRule == EMA_RANGING) {
+            if(!isBullTrend && !isBearTrend) emaSig = IND_PASS;
+         }
+      }
    }
 
-   //--- PRD 4: ADX Component
+   //--- PRD 4, 5.6: ADX Component (Trend, Extreme, or Ranging)
    if(useADX) {
       anyActive = true;
+      adxSig = IND_NEUTRAL;
       int h = (strategyNum == 1) ? g_hADX1 : g_hADX2;
       if(h == INVALID_HANDLE) {
          h = iADX(_Symbol, (ENUM_TIMEFRAMES)tfADX, adxPeriod);
@@ -311,31 +338,85 @@ int GetStrategySignal(int strategyNum)
       }
       double adx[], diPlus[], diMinus[];
       if(CopyBuffer(h, 0, 0, 1, adx) == 1 && CopyBuffer(h, 1, 0, 1, diPlus) == 1 && CopyBuffer(h, 2, 0, 1, diMinus) == 1) {
-         //--- Strong trend (ADX > Threshold) and Directional Alignment
-         if(!(adx[0] > adxThreshold && diPlus[0] > diMinus[0])) buySignal = false;
-         if(!(adx[0] > adxThreshold && diMinus[0] > diPlus[0])) sellSignal = false;
-      } else { buySignal = false; sellSignal = false; }
+         double val = adx[0];
+         bool buyDI = (diPlus[0] > diMinus[0]);
+         bool sellDI = (diMinus[0] > diPlus[0]);
+         
+         if(adxRule == ADX_WITH_TREND) {
+            if(val > adxTrendLevel) {
+               if(buyDI) adxSig = IND_BUY;
+               else if(sellDI) adxSig = IND_SELL;
+            }
+         }
+         else if(adxRule == ADX_WITH_TREND_AVOID_EXTREME) {
+            if(val > adxTrendLevel && val < adxExtremeLevel) {
+               if(buyDI) adxSig = IND_BUY;
+               else if(sellDI) adxSig = IND_SELL;
+            }
+         }
+         else if(adxRule == ADX_AGAINST_TREND) {
+            if(val > adxExtremeLevel) {
+               if(buyDI) adxSig = IND_SELL; // Trade AGAINST dominant DI
+               else if(sellDI) adxSig = IND_BUY;
+            }
+         }
+         else if(adxRule == ADX_RANGING) {
+            if(val < adxRangeLevel) adxSig = IND_PASS;
+         }
+      }
    }
 
-   //--- PRD 4: Bollinger Band Component
+   //--- PRD 4, 5.6: Bollinger Band Component (Extreme Avoidance or Mean Reversion)
    if(useBB) {
       anyActive = true;
+      bbSig = IND_NEUTRAL;
       int h = (strategyNum == 1) ? g_hBB1 : g_hBB2;
       if(h == INVALID_HANDLE) {
-         h = iBands(_Symbol, (ENUM_TIMEFRAMES)tfBB, 20, 0, bbDev, PRICE_CLOSE);
+         h = iBands(_Symbol, (ENUM_TIMEFRAMES)tfBB, bbPeriod, 0, bbDev, PRICE_CLOSE);
          if(strategyNum == 1) g_hBB1 = h; else g_hBB2 = h;
       }
       double upper[], lower[];
       if(CopyBuffer(h, 1, 0, 1, upper) == 1 && CopyBuffer(h, 2, 0, 1, lower) == 1) {
-         //--- Buy on Lower Band | Sell on Upper Band
-         if(!(m_symbol.Ask() <= lower[0])) buySignal = false;
-         if(!(m_symbol.Bid() >= upper[0])) sellSignal = false;
-      } else { buySignal = false; sellSignal = false; }
+         double ask = m_symbol.Ask();
+         double bid = m_symbol.Bid();
+         double buffer = bbBufferPips * m_symbol.Point() * 10;
+         
+         if(bbRule == BB_AVOID_EXTREME_TREND) {
+            //--- Allow trade only if NOT pushing the outer boundaries (with buffer)
+            bool buyAllowed = (ask < upper[0] - buffer);
+            bool sellAllowed = (bid > lower[0] + buffer);
+            
+            if(buyAllowed && sellAllowed) {
+               // This rule is essentially a directionless filter/pass when inside the channel
+               if(buyAllowed && sellAllowed) bbSig = IND_PASS; 
+               else if(buyAllowed) bbSig = IND_BUY;
+               else if(sellAllowed) bbSig = IND_SELL;
+            }
+         }
+         else if(bbRule == BB_AGAINST_TREND) {
+            //--- Reversal: Buy at Lower, Sell at Upper
+            if(ask <= lower[0]) bbSig = IND_BUY;
+            else if(bid >= upper[0]) bbSig = IND_SELL;
+         }
+      }
    }
 
    if(!anyActive) return 0;
-   if(buySignal) return 1;
-   if(sellSignal) return -1;
+
+   //--- 5.6 Universal Alignment Matrix Evaluation
+   //--- 1. Check for Blockers (NEUTRAL)
+   if(rsiSig == IND_NEUTRAL || emaSig == IND_NEUTRAL || adxSig == IND_NEUTRAL || bbSig == IND_NEUTRAL) return 0;
+   
+   //--- 2. Check for Conflict (Buy and Sell existing together)
+   bool hasBuy = (rsiSig == IND_BUY || emaSig == IND_BUY || adxSig == IND_BUY || bbSig == IND_BUY);
+   bool hasSell = (rsiSig == IND_SELL || emaSig == IND_SELL || adxSig == IND_SELL || bbSig == IND_SELL);
+   if(hasBuy && hasSell) return 0;
+   
+   //--- 3. Directional Execution
+   if(hasBuy) return 1;
+   if(hasSell) return -1;
+   
+   //--- 4. All PASS or No Signals (Directionless)
    return 0;
 }
 

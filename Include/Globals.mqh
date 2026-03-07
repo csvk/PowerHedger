@@ -22,7 +22,11 @@ CSymbolInfo    m_symbol;         // Symbol properties (Bid, Ask, TickValue) clas
 double   g_totalBuyLots  = 0;    // Sum of volume for all open Buy positions
 double   g_totalSellLots = 0;    // Sum of volume for all open Sell positions
 double   g_profitTally   = 0;    // Persistent bucket for fractional profit left after trimming (PRD 3.4)
-double   g_hedgePoint    = -1;   // Tick-monitored Post-Trim Hedge Price Point (PRD 3.5)
+double   g_trailingHedgePrice = -1; // Tick-monitored Trailing Hedge Price (PRD 3.5)
+bool     g_isStateDirty  = false; // Dirty flag to consolidate redundant SaveState calls
+double   g_lastSavedTally = -1;    // Tracked value for change detection
+double   g_lastSavedTrailingPrice = -2; // Tracked value for change detection
+ulong    g_lastSavedDeal  = 0;     // Tracked value for change detection
 
 //--- TICKET TRACKING: Structure to mirror theoretical vs actual trim (PRD 3.3)
 struct TicketProfit {

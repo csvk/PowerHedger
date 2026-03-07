@@ -53,6 +53,8 @@ int OnInit()
    //--- Seed random generator for testing purposes (Note: PRD 2.1 requires indicators, random is for dev)
    MathSrand(RandomSeed);
    
+   PrintFormat("[INFO] PowerHedger initialized successfully for %s (Magic: %d)", _Symbol, MagicNumber);
+   
    return(INIT_SUCCEEDED);
 }
 
@@ -69,6 +71,8 @@ void OnDeinit(const int reason)
    IndicatorRelease(g_hADX1); IndicatorRelease(g_hBB1);
    IndicatorRelease(g_hRSI2); IndicatorRelease(g_hEMA2_F); IndicatorRelease(g_hEMA2_M); IndicatorRelease(g_hEMA2_S);
    IndicatorRelease(g_hADX2); IndicatorRelease(g_hBB2);
+   
+   PrintFormat("[INFO] PowerHedger deinitialized for %s (Magic: %d, Reason: %d)", _Symbol, MagicNumber, reason);
 }
 
 //+------------------------------------------------------------------+
@@ -96,6 +100,10 @@ void OnTick()
    
    //--- 5. PRD 2.1/2.4: Indicator-based Entry Logic (Conditional on market state)
    CheckNewEntries();
+   
+   //--- PRD 3.4: Consolidate state saving at the end of the tick
+   ReconcileRecentDeals(); // Revision 3: Synchronous reconciliation before final save
+   SaveStateIfNeeded();
 }
 
 //+------------------------------------------------------------------+
@@ -108,9 +116,6 @@ void OnTrade()
    
    //--- Recalculate balances whenever a trade event (open/close/modify) occurs
    CalculateBalances();
-   
-   //--- Persist the new state immediately to prevent data loss on crash (PRD 3.4)
-   SaveState();
 }
 
 //+------------------------------------------------------------------+
@@ -124,6 +129,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    if(trans.type == TRADE_TRANSACTION_DEAL_ADD) {
       ReconcileRecentDeals();
       CalculateBalances(); // Re-sync volumes in case history processing modified open positions
+      SaveStateIfNeeded(); // Final save after reconciliation
    }
 }
 

@@ -53,7 +53,7 @@ int CountOpenPositions(ENUM_POSITION_TYPE type)
 //| PRD 2.1: Check if new signalled trade is allowed based on        |
 //| Inside/Outside market conditions and distance rules.             |
 //+------------------------------------------------------------------+
-bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minPipGap, ENUM_MARKET_CONTEXT &outContext)
+bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minPipGap, ENUM_MARKET_CONTEXT &outContext, string &reason)
 {
    double lowestBuy = -1, highestBuy = -1;
    double lowestSell = -1, highestSell = -1;
@@ -111,7 +111,11 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minPipGap, EN
          double distToSell = MathAbs(currentPrice - innerSell);
          double minPipGapPoints = minPipGap * m_symbol.Point() * 10;
          
-         if(distToBuy < minPipGapPoints || distToSell < minPipGapPoints) return false;
+         if(distToBuy < minPipGapPoints || distToSell < minPipGapPoints) {
+            reason = StringFormat("Inside corridor: Distance to Buy (%.1f) or Sell (%.1f) < MinPipGap (%.1f)", 
+                                  distToBuy/(m_symbol.Point()*10), distToSell/(m_symbol.Point()*10), minPipGap);
+            return false;
+         }
          
          outContext = CONTEXT_INSIDE;
          return true;
@@ -122,7 +126,10 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minPipGap, EN
    //--- Only Buy OR only Sell open. 
    if((hasBuy && !hasSell) || (!hasBuy && hasSell))
    {
-      if(OutsideAllowed == OUTSIDE_NO) return false;
+      if(OutsideAllowed == OUTSIDE_NO) {
+         reason = "Outside Entry not allowed (OutsideAllowed = No)";
+         return false;
+      }
       
       // Find nearest position to current market price
       double nearestP = -1;
@@ -147,10 +154,17 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minPipGap, EN
       
       // Condition 1: Nearest must be in loss
       bool nearestInLoss = (nearestType == POSITION_TYPE_BUY) ? (bid < nearestP) : (ask > nearestP);
-      if(!nearestInLoss) return false;
+      if(!nearestInLoss) {
+         reason = StringFormat("Outside Entry: Nearest %s at %.5f is currently in PROFIT (NearestInLoss rule)", 
+                               (nearestType == POSITION_TYPE_BUY ? "LONG" : "SHORT"), nearestP);
+         return false;
+      }
       
       // Condition 2: MinPipGap away
-      if(minDist < minPipGap * m_symbol.Point() * 10) return false;
+      if(minDist < minPipGap * m_symbol.Point() * 10) {
+         reason = StringFormat("Outside Entry: Distance (%.1f) < MinPipGap (%.1f)", minDist/(m_symbol.Point()*10), minPipGap);
+         return false;
+      }
       
       // Condition 3: OutsideAllowed enum filters
       bool isAllowed = false;
@@ -159,6 +173,11 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minPipGap, EN
          bool isSameDir = (signalType == nearestType);
          if(OutsideAllowed == OUTSIDE_SAME_DIR && isSameDir) isAllowed = true;
          else if(OutsideAllowed == OUTSIDE_AGAINST_DIR && !isSameDir) isAllowed = true;
+         
+         if(!isAllowed) {
+            reason = StringFormat("Outside Entry: %s signal blocked by OutsideAllowed rule (%s)", 
+                                  (signalType == POSITION_TYPE_BUY ? "LONG" : "SHORT"), EnumToString(OutsideAllowed));
+         }
       }
       
       if(isAllowed) {
@@ -169,6 +188,7 @@ bool IsStrategicEntryAllowed(ENUM_POSITION_TYPE signalType, double minPipGap, EN
       return false;
    }
    
+   reason = "Unknown market context";
    return false; 
 }
 
@@ -230,6 +250,7 @@ bool IsSessionActive()
 //+------------------------------------------------------------------+
 int GetStrategySignal(int strategyNum)
 {
+   string logBuffer = ""; // Buffer for [SIGNAL] logs to avoid spam (PRD 9.1 optimization)
    //--- Local mappings for the requested strategy index (1 or 2)
    bool useRSI, useEMA, useADX, useBB;
    ENUM_TF_OPTIONS tfRSI, tfEMA, tfADX, tfBB;
@@ -282,6 +303,12 @@ int GetStrategySignal(int strategyNum)
       if(CopyBuffer(h, 0, 0, 2, rsi) == 2) {
          if(rsi[0] < (100 - rsiSellLevel) && rsi[1] >= (100 - rsiSellLevel)) rsiSig = IND_BUY;
          else if(rsi[0] > rsiSellLevel && rsi[1] <= rsiSellLevel) rsiSig = IND_SELL;
+         
+         if(rsiSig != IND_NEUTRAL) {
+            string status = StringSubstr(EnumToString(rsiSig), 4); // Strip "IND_"
+            logBuffer += StringFormat("[SIGNAL] %s (S%d RSI): Current=%.2f, Prev=%.2f (SellLevel=%.1f)\n", 
+                                      status, strategyNum, rsi[0], rsi[1], rsiSellLevel);
+         }
       }
    }
 
@@ -324,6 +351,12 @@ int GetStrategySignal(int strategyNum)
          else if(emaRule == EMA_RANGING) {
             if(!isBullTrend && !isBearTrend) emaSig = IND_PASS;
          }
+         
+         if(emaSig != IND_NEUTRAL) {
+            string status = StringSubstr(EnumToString(emaSig), 4);
+            logBuffer += StringFormat("[SIGNAL] %s (S%d EMA %d/%d/%d): F=%.5f, M=%.5f, S=%.5f (Rule=%s)\n", 
+                                      status, strategyNum, f, m, s, emaF[0], emaM[0], emaS[0], EnumToString(emaRule));
+         }
       }
    }
 
@@ -363,6 +396,12 @@ int GetStrategySignal(int strategyNum)
          else if(adxRule == ADX_RANGING) {
             if(val < adxRangeLevel) adxSig = IND_PASS;
          }
+         
+         if(adxSig != IND_NEUTRAL) {
+            string status = StringSubstr(EnumToString(adxSig), 4);
+            logBuffer += StringFormat("[SIGNAL] %s (S%d ADX %d): Val=%.2f, +DI=%.2f, -DI=%.2f (Rule=%s, TrendLvl=%.1f, ExtLvl=%.1f)\n", 
+                        status, strategyNum, adxPeriod, val, diPlus[0], diMinus[0], EnumToString(adxRule), adxTrendLevel, adxExtremeLevel);
+         }
       }
    }
 
@@ -398,6 +437,12 @@ int GetStrategySignal(int strategyNum)
             if(ask <= lower[0]) bbSig = IND_BUY;
             else if(bid >= upper[0]) bbSig = IND_SELL;
          }
+         
+         if(bbSig != IND_NEUTRAL) {
+            string status = StringSubstr(EnumToString(bbSig), 4);
+            logBuffer += StringFormat("[SIGNAL] %s (S%d BB %d, %.1f): Upper=%.5f, Lower=%.5f, Ask=%.5f, Bid=%.5f (Rule=%s, Buffer=%.1f)\n", 
+                        status, strategyNum, bbPeriod, bbDev, upper[0], lower[0], ask, bid, EnumToString(bbRule), bbBufferPips);
+         }
       }
    }
 
@@ -413,8 +458,11 @@ int GetStrategySignal(int strategyNum)
    if(hasBuy && hasSell) return 0;
    
    //--- 3. Directional Execution
-   if(hasBuy) return 1;
-   if(hasSell) return -1;
+   if(hasBuy || hasSell) {
+      if(logBuffer != "") Print(logBuffer); // Only print details if a trade is actually triggered
+      if(hasBuy) return 1;
+      if(hasSell) return -1;
+   }
    
    //--- 4. All PASS or No Signals (Directionless)
    return 0;

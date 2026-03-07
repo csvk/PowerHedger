@@ -23,3 +23,14 @@ This document tracks the features and improvements for the PowerHedger Expert Ad
 ### 5. Enhanced Trade Comments
 - **Description**: Improve the readability and informativeness of trade comments, specifically including "Buy" or "Sell" labels and other relevant metadata.
 - **Goal**: Easier debugging and analysis of trade logs and history.
+### 6. Reduction of Losing Trades at Distance
+- **Description**: Implement logic to reduce or close out losing trades if the price moves significantly far away from the entry point without a reversal.
+- **Goal**: Minimize deep drawdowns and prevent "zombie" trades from consuming margin for extended periods.
+
+### 7. On-Chart Status Table
+- **Description**: Add a graphical dashboard or table on the trading chart to display key EA metrics (Open Buy/Sell volume, Net Profit, Equity, Hedge Gap, etc.).
+- **Goal**: Provide real-time visibility into the EA's internal state directly within the MT5 terminal.
+
+### 8. Categorized Log Messages
+- **Description**: Prefix all `Print()` statements with tags such as `[DECISION]`, `[INFO]`, `[ERROR]`, etc., to clearly identify the intent of each log entry.
+- **Goal**: Improve log readability and allow for easier filtering and automated analysis of the EA's behavior.

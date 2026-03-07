@@ -41,7 +41,7 @@ bool ClosePartialWithComment(ulong ticket, double volume, string comment)
    else request.type_filling = ORDER_FILLING_RETURN;
    
    if(!OrderSend(request, result)) {
-      PrintFormat("ClosePartialWithComment failed (Ticket: %d, Vol: %.2f, Error: %d)", ticket, volume, GetLastError());
+      PrintFormat("[ERROR] ClosePartialWithComment failed (Ticket: %d, Vol: %.2f, Error: %d)", ticket, volume, GetLastError());
       return false;
    }
    return true;
@@ -65,13 +65,20 @@ void CheckNewEntries()
    //--- PRD 2.1: MinPipGap calculation
    double minPipGap = MinPipGapMultiplier * HedgePips;
 
-   //--- [CORE FIX]: Gate signal calculation. Only proceed if at least one direction is allowed by rules & MaxLots.
-   //--- This prevents redundant signal calculation and silences "signal blocked" logs.
+   //--- Consolidate trade permission checks and capture reasons
+   string buyReason = "", sellReason = "";
    ENUM_MARKET_CONTEXT buyContext = CONTEXT_NEW, sellContext = CONTEXT_NEW;
-   bool canBuy  = (g_totalBuyLots + LotSize <= MaxLots)  && IsStrategicEntryAllowed(POSITION_TYPE_BUY, minPipGap, buyContext);
-   bool canSell = (g_totalSellLots + LotSize <= MaxLots) && IsStrategicEntryAllowed(POSITION_TYPE_SELL, minPipGap, sellContext);
+   
+   bool buyLimitOk = (g_totalBuyLots + LotSize <= MaxLots);
+   if(!buyLimitOk) buyReason = StringFormat("MaxLots (%.2f) reached", MaxLots);
+   bool buyAllowed = buyLimitOk && IsStrategicEntryAllowed(POSITION_TYPE_BUY, minPipGap, buyContext, buyReason);
+   
+   bool sellLimitOk = (g_totalSellLots + LotSize <= MaxLots);
+   if(!sellLimitOk) sellReason = StringFormat("MaxLots (%.2f) reached", MaxLots);
+   bool sellAllowed = sellLimitOk && IsStrategicEntryAllowed(POSITION_TYPE_SELL, minPipGap, sellContext, sellReason);
 
-   if(!canBuy && !canSell) return; 
+   //--- [CORE FIX]: Suppress signal generation if neither side is allowed (PRD Refinement)
+   if(!buyAllowed && !sellAllowed) return; 
 
    //--- PRD 2.1: Prioritized strategy invocation (Mutual Exclusion)
    int signal = 0;
@@ -80,22 +87,52 @@ void CheckNewEntries()
    
    if(EnableRandom) {
       int randSig = GetRandomSignal();
-      if(randSig == 1 && canBuy) { signal = 1; strategyName = "Random"; context = buyContext; }
-      else if(randSig == -1 && canSell) { signal = -1; strategyName = "Random"; context = sellContext; }
+      if(randSig == 1) {
+         if(buyAllowed) { signal = 1; strategyName = "Random"; context = buyContext; }
+         else PrintFormat("[DECISION] Random BUY blocked: %s", buyReason);
+      }
+      else if(randSig == -1) {
+         if(sellAllowed) { signal = -1; strategyName = "Random"; context = sellContext; }
+         else PrintFormat("[DECISION] Random SELL blocked: %s", sellReason);
+      }
    } else {
       int s1_signal = GetStrategySignal(1);
       int s2_signal = GetStrategySignal(2);
       
       if(PrioritizeStrategy == STRAT_1) {
-         if(s1_signal == 1 && canBuy) { signal = 1; strategyName = S1Name; context = buyContext; }
-         else if(s1_signal == -1 && canSell) { signal = -1; strategyName = S1Name; context = sellContext; }
-         else if(s2_signal == 1 && canBuy) { signal = 1; strategyName = S2Name; context = buyContext; }
-         else if(s2_signal == -1 && canSell) { signal = -1; strategyName = S2Name; context = sellContext; }
+         if(s1_signal == 1) {
+            if(buyAllowed) { signal = 1; strategyName = S1Name; context = buyContext; }
+            else PrintFormat("[DECISION] %s BUY blocked: %s", S1Name, buyReason);
+         }
+         else if(s1_signal == -1) {
+            if(sellAllowed) { signal = -1; strategyName = S1Name; context = sellContext; }
+            else PrintFormat("[DECISION] %s SELL blocked: %s", S1Name, sellReason);
+         }
+         else if(s2_signal == 1) {
+            if(buyAllowed) { signal = 1; strategyName = S2Name; context = buyContext; }
+            else PrintFormat("[DECISION] %s BUY blocked: %s", S2Name, buyReason);
+         }
+         else if(s2_signal == -1) {
+            if(sellAllowed) { signal = -1; strategyName = S2Name; context = sellContext; }
+            else PrintFormat("[DECISION] %s SELL blocked: %s", S2Name, sellReason);
+         }
       } else {
-         if(s2_signal == 1 && canBuy) { signal = 1; strategyName = S2Name; context = buyContext; }
-         else if(s2_signal == -1 && canSell) { signal = -1; strategyName = S2Name; context = sellContext; }
-         else if(s1_signal == 1 && canBuy) { signal = 1; strategyName = S1Name; context = buyContext; }
-         else if(s1_signal == -1 && canSell) { signal = -1; strategyName = S1Name; context = sellContext; }
+         if(s2_signal == 1) {
+            if(buyAllowed) { signal = 1; strategyName = S2Name; context = buyContext; }
+            else PrintFormat("[DECISION] %s BUY blocked: %s", S2Name, buyReason);
+         }
+         else if(s2_signal == -1) {
+            if(sellAllowed) { signal = -1; strategyName = S2Name; context = sellContext; }
+            else PrintFormat("[DECISION] %s SELL blocked: %s", S2Name, sellReason);
+         }
+         else if(s1_signal == 1) {
+            if(buyAllowed) { signal = 1; strategyName = S1Name; context = buyContext; }
+            else PrintFormat("[DECISION] %s BUY blocked: %s", S1Name, buyReason);
+         }
+         else if(s1_signal == -1) {
+            if(sellAllowed) { signal = -1; strategyName = S1Name; context = sellContext; }
+            else PrintFormat("[DECISION] %s SELL blocked: %s", S1Name, sellReason);
+         }
       }
    }
    
@@ -113,7 +150,7 @@ void CheckNewEntries()
    if(context == CONTEXT_INSIDE) contextStr = "Inside";
    else if(context == CONTEXT_OUTSIDE) contextStr = "Outside";
    
-   string sideTag = (type == POSITION_TYPE_BUY) ? "[BUY]" : "[SELL]";
+   string sideTag = (type == POSITION_TYPE_BUY) ? "[LONG]" : "[SHORT]";
    string comment = StringFormat("<%d> %s %s [%s]", n, sideTag, strategyName, contextStr);
    
    bool success = false;
@@ -121,13 +158,15 @@ void CheckNewEntries()
    else success = m_trade.Sell(volume, _Symbol, m_symbol.Bid(), 0, 0, comment);
    
    if(success) {
-      PrintFormat("Indicator %s signal executed: %s at %.5f", strategyName, comment, (type == POSITION_TYPE_BUY) ? m_symbol.Ask() : m_symbol.Bid());
+      double entryPrice = (type == POSITION_TYPE_BUY) ? m_symbol.Ask() : m_symbol.Bid();
+      PrintFormat("[TRADE] Entry Executed: %s at %.5f (Nearest Opp.: %.5f, MinPipGap: %.1f, HedgePips: %.1f)", 
+                  comment, entryPrice, (type == POSITION_TYPE_BUY) ? 0 : 0, minPipGap, HedgePips); // FIXME: Add actual nearest oppositte entry if needed, but minPipGap is key
       
       //--- PRD 3.5: Handover from squeezing to standard hedging immediately upon successful strategic entry
-      if(g_hedgePoint > 0) {
-         PrintFormat("Squeezing Handover: Strategic entry detected. Resetting Post-Trim Hedge Point (%.5f) for standard handover.", g_hedgePoint);
-         g_hedgePoint = -1;
-         SaveState();
+      if(g_trailingHedgePrice > 0) {
+         PrintFormat("[HEDGE] Squeezing Handover: Strategic entry detected. Resetting Trailing Hedge Price (%.5f) for standard handover.", g_trailingHedgePrice);
+         g_trailingHedgePrice = -1;
+         TriggerSave();
       }
    }
 }
@@ -218,11 +257,11 @@ void TrimPositions(double amount, string comment = "Trim")
       
       //--- Terminate if no qualifying losing positions are found
       if(ticket == 0) {
-         if(pool > 0) PrintFormat("Trimming stopped: No qualifying losing positions found at distance >= HedgePips (Remaining Pool: %.2f)", pool);
+         if(pool > 0) PrintFormat("[INFO] Trimming stopped: No qualifying losing positions found at distance >= HedgePips (%.1f) (Remaining Pool: %.2f)", HedgePips, pool);
          break;
       }
       
-      PrintFormat("Trimming decision: Selected Ticket %d (Dist: %.1f pips) for risk reduction using profit pool (Available: %.2f)", 
+      PrintFormat("[DECISION] Trimming decision: Selected Ticket %d (Dist: %.1f pips) for risk reduction using profit pool (Available: %.2f)", 
                   ticket, maxDist / (m_symbol.Point() * 10), pool);
       
       //--- Calculate the dollar value of loss for 1 full lot at current price
@@ -238,8 +277,8 @@ void TrimPositions(double amount, string comment = "Trim")
       lotToClose = MathFloor(lotToClose / m_symbol.LotsStep()) * m_symbol.LotsStep();
       
       if(lotToClose >= m_symbol.LotsMin()) {
-         //--- PRD 3.2: Execute partial closure with [BUY]/[SELL] tag
-         string sideTag = (type == POSITION_TYPE_BUY) ? "[BUY]" : "[SELL]";
+         //--- PRD 3.2: Execute partial closure with [LONG]/[SHORT] tag
+         string sideTag = (type == POSITION_TYPE_BUY) ? "[LONG]" : "[SHORT]";
          if(ClosePartialWithComment(ticket, lotToClose, sideTag + " " + comment)) {
             pool -= (lotToClose * lossPerLot); // Reduce available pool
             vol -= lotToClose; // Update volume for pending tick reconciliation
@@ -251,7 +290,7 @@ void TrimPositions(double amount, string comment = "Trim")
       }
    }
    //--- Ensure state is saved after risk reduction
-   SaveState();
+   TriggerSave();
 }
 
 //+------------------------------------------------------------------+
@@ -291,7 +330,7 @@ void ReducePositionSide(ENUM_POSITION_TYPE type, double volumeToReduce)
       lotToClose = MathFloor(lotToClose / m_symbol.LotsStep()) * m_symbol.LotsStep();
       
       if(lotToClose >= m_symbol.LotsMin()) {
-         string sideTag = (type == POSITION_TYPE_BUY) ? "[BUY]" : "[SELL]";
+         string sideTag = (type == POSITION_TYPE_BUY) ? "[LONG]" : "[SHORT]";
          if(ClosePartialWithComment(ticket, lotToClose, sideTag + " Reduction")) {
             remaining -= lotToClose;
          } else break;
@@ -299,7 +338,7 @@ void ReducePositionSide(ENUM_POSITION_TYPE type, double volumeToReduce)
    }
    
    CalculateBalances();
-   SaveState();
+   TriggerSave();
 }
 
 //| Management: Execute Hedge or Reduction based on MaxLots          |
@@ -314,22 +353,22 @@ void ExecuteHedgeOrReduce(ENUM_POSITION_TYPE hedgeType, double requiredVolume, s
 
    //--- PRD 2.2: Check if MaxLots reached in either direction or hedge breaches limit
    if(hedgeSideVol + requiredVolume > MaxLots || unbalancedSideVol >= MaxLots) {
-      PrintFormat("Hedge Sidelined -> Executing Reduction: Side %s reached MaxLots limit. Reducing %s by LotSize (%.2f) to stay within safety limits (PRD 2.2).", 
+      PrintFormat("[WARNING] Hedge Sidelined -> Executing Reduction: Side %s reached MaxLots limit. Reducing %s by LotSize (%.2f) to stay within safety limits (PRD 2.2).", 
                   EnumToString(hedgeType), EnumToString(unbalancedType), LotSize);
       ReducePositionSide(unbalancedType, LotSize);
    } else {
       //--- Execute standard or trailing hedge
       if(hedgeType == POSITION_TYPE_BUY) {
          int n = CountOpenPositions(POSITION_TYPE_BUY) + 1;
-         string comment = StringFormat("<%d> [BUY] %s", n, keyword);
+         string comment = StringFormat("<%d> [LONG] %s", n, keyword);
          if(m_trade.Buy(requiredVolume, _Symbol, m_symbol.Ask(), 0, 0, comment)) {
-            PrintFormat("Hedge Executed: %s (Vol: %.2f) at %.5f", comment, requiredVolume, m_symbol.Ask());
+            PrintFormat("[TRADE] Hedge Executed: %s (Vol: %.2f) at %.5f", comment, requiredVolume, m_symbol.Ask());
          }
       } else {
          int n = CountOpenPositions(POSITION_TYPE_SELL) + 1;
-         string comment = StringFormat("<%d> [SELL] %s", n, keyword);
+         string comment = StringFormat("<%d> [SHORT] %s", n, keyword);
          if(m_trade.Sell(requiredVolume, _Symbol, m_symbol.Bid(), 0, 0, comment)) {
-            PrintFormat("Hedge Executed: %s (Vol: %.2f) at %.5f", comment, requiredVolume, m_symbol.Bid());
+            PrintFormat("[TRADE] Hedge Executed: %s (Vol: %.2f) at %.5f", comment, requiredVolume, m_symbol.Bid());
          }
       }
    }
@@ -371,8 +410,8 @@ void ManageOpenPositions()
                   double incrementalTrim = totalTrimGoal - GetTrimmedAmount(winTicket);
 
                   if(incrementalTrim > 0) {
-                     PrintFormat("Intermediate Trim triggered: Ticket %d has locked %.1f pips (Profit: %.2f). Applying risk reduction (Goal: %.2f).", 
-                                 winTicket, actLockedPips, profit, incrementalTrim);
+                     PrintFormat("[DECISION] Intermediate Trim triggered: Ticket %d has locked %.1f pips (Profit: %.2f, MinTrim: %.1f). Applying risk reduction (Goal: %.2f, KeepProfitPct: %.1f%%).", 
+                                 winTicket, actLockedPips, profit, IntermediateTrimPips, incrementalTrim, KeepProfitPercent * 100);
                      TrimPositions(incrementalTrim, "Intermediate Trim");
                      SetTrimData(winTicket, totalTrimGoal, actLockedPips);
                   }
@@ -391,7 +430,8 @@ void ManageOpenPositions()
             if(isSignificantMove && isAboveStopLevel) {
                if(currentSL == 0 || (m_position.PositionType() == POSITION_TYPE_BUY && newSL > currentSL) || (m_position.PositionType() == POSITION_TYPE_SELL && newSL < currentSL)) {
                   if(m_trade.PositionModify(winTicket, newSL, 0)) {
-                     PrintFormat("Trailing Stop updated: Ticket %d SL moved from %.5f to %.5f (Reason: Price advancement)", winTicket, currentSL, newSL);
+                     PrintFormat("[TRADE] Trailing Stop updated: Ticket %d SL moved from %.5f to %.5f (Reason: Price advancement, Pips: %.1f, TrailPips: %.1f)", 
+                                 winTicket, currentSL, newSL, pips, TrailingStopPips);
                   }
                }
             }
@@ -418,9 +458,9 @@ void ManageOpenPositions()
    }
    
    if(!hasDistantTrade && g_profitTally > 0) {
-      PrintFormat("ProfitTally Reset: No positions remain >= HedgePips (%.1f) away from market. Tally %.2f cleared.", HedgePips, g_profitTally);
+      PrintFormat("[INFO] ProfitTally Reset: No positions remain >= HedgePips (%.1f) away from market. Tally %.2f cleared.", HedgePips, g_profitTally);
       g_profitTally = 0;
-      SaveState();
+      TriggerSave();
    }
 }
 
@@ -462,7 +502,10 @@ void ReconcileRecentDeals()
                }
             }
             //--- Update the last processed deal to the latest encountered ticket
-            if(dealTicket > g_lastProcessedDeal) g_lastProcessedDeal = dealTicket;
+            if(dealTicket > g_lastProcessedDeal) {
+               g_lastProcessedDeal = dealTicket;
+               TriggerSave();
+            }
          }
       }
    }
@@ -480,9 +523,9 @@ void ProcessFinalClosure(ulong ticket, double finalProfit, ENUM_POSITION_TYPE po
    //--- 1. FILTER: Losing trades (Trims, S/L, Manual loss) do not trigger new trims or hedge points
    if(finalProfit <= 0) {
       //--- PRD 3.5 Safeguard: If we already have a delayed hedge point active, do not reset it
-      if (g_hedgePoint <= 0 && g_totalBuyLots != g_totalSellLots) g_hedgePoint = -1;
+      if (g_trailingHedgePrice <= 0 && g_totalBuyLots != g_totalSellLots) g_trailingHedgePrice = -1;
       RemoveTicketTrack(ticket);
-      SaveState();
+      TriggerSave();
       return;
    }
    
@@ -510,23 +553,25 @@ void ProcessFinalClosure(ulong ticket, double finalProfit, ENUM_POSITION_TYPE po
              for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_SELL) if(nearestEntry == -1 || m_position.PriceOpen() > nearestEntry) nearestEntry = m_position.PriceOpen();
          }
 
-         //--- Set g_hedgePoint at exactly HedgePips from the exit price of the profitable trade
-         g_hedgePoint = (g_totalBuyLots > g_totalSellLots) ? (exitPrice - HedgePips * m_symbol.Point() * 10) : (exitPrice + HedgePips * m_symbol.Point() * 10);
-         PrintFormat("Post-Trim Hedge Point established: %.5f (Nearest Entry: %.5f, HedgePips: %.1f). Squeezing active.", g_hedgePoint, nearestEntry, HedgePips);
+         //--- Set g_trailingHedgePrice at exactly HedgePips from the exit price of the profitable trade
+         g_trailingHedgePrice = (g_totalBuyLots > g_totalSellLots) ? (exitPrice - HedgePips * m_symbol.Point() * 10) : (exitPrice + HedgePips * m_symbol.Point() * 10);
+         double unbalancedVol = MathAbs(g_totalBuyLots - g_totalSellLots);
+         string hedgeDir = (g_totalBuyLots > g_totalSellLots) ? "SHORT" : "LONG";
+         PrintFormat("[HEDGE] Trailing Hedge Price established: %.5f (%s, Vol: %.2f) (Nearest Entry: %.5f, ExitPrice: %.5f, HedgePips: %.1f). Squeezing active.", 
+                     g_trailingHedgePrice, hedgeDir, unbalancedVol, nearestEntry, exitPrice, HedgePips);
       } else {
          //--- PRD 3.5 Safeguard: If we already have a delayed hedge point active, do not reset it
          //--- intermediate loss closures in the same tick should not wipe out the delayed point.
-         if (g_hedgePoint <= 0) g_hedgePoint = -1; // Reset to allow immediate standard hedge
+         if (g_trailingHedgePrice <= 0) g_trailingHedgePrice = -1; // Reset to allow immediate standard hedge
       }
    } else {
-      g_hedgePoint = -1; // Reset if perfectly balanced
+      g_trailingHedgePrice = -1; // Reset if perfectly balanced
    }
    
    //--- 4. CLEANUP: Remove ticket tracking data and finalize volume state
    RemoveTicketTrack(ticket);
    CalculateBalances(); // Final sync of volumes after potential trims
    g_lastHedgeTickTime = 0; // Reset hedge guard to allow immediately required hedges after a closure if needed (but ManageHedgeSqueeze usually takes over)
-   SaveState();
 }
 
 //+------------------------------------------------------------------+
@@ -538,21 +583,21 @@ void ManageHedgeSqueeze()
    CalculateBalances();
 
    //--- 1. PRD 3.5: Active check for delayed hedge
-   if(g_hedgePoint <= 0) return;
+   if(g_trailingHedgePrice <= 0) return;
 
    //--- 2. GUARD: Per-tick throttle (PRD 2.3/3.5 transition safety)
    if(g_lastHedgeTickTime == TimeCurrent()) return;
    
    //--- 3. Calculate current distance to the delayed hedge point
    double currentPrice = (g_totalBuyLots > g_totalSellLots) ? m_symbol.Bid() : m_symbol.Ask();
-   double dist = MathAbs(currentPrice - g_hedgePoint) / (m_symbol.Point() * 10);
+   double dist = MathAbs(currentPrice - g_trailingHedgePrice) / (m_symbol.Point() * 10);
    
    //--- 4. PRD 3.5: Trailing Adjustment (Squeezing)
    //--- Logic: If price moves further away than HedgePips + SqueezePips, trail the hedge point.
    //--- PRD Fix: Use SqueezePips as a "trailing step" to ensure discrete updates and avoid sub-pip jitter.
    if(dist > HedgePips + SqueezePips) {
-      double oldPoint = g_hedgePoint;
-      g_hedgePoint = (g_totalBuyLots > g_totalSellLots) ? (currentPrice - HedgePips * m_symbol.Point() * 10) : (currentPrice + HedgePips * m_symbol.Point() * 10);
+      double oldPoint = g_trailingHedgePrice;
+      g_trailingHedgePrice = (g_totalBuyLots > g_totalSellLots) ? (currentPrice - HedgePips * m_symbol.Point() * 10) : (currentPrice + HedgePips * m_symbol.Point() * 10);
       
       //--- Find nearest entry of the unbalanced side
       double nearestEntry = -1;
@@ -562,13 +607,15 @@ void ManageHedgeSqueeze()
           for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_SELL) if(nearestEntry == -1 || m_position.PriceOpen() > nearestEntry) nearestEntry = m_position.PriceOpen();
       }
 
-      PrintFormat("Hedge Point Trailed: %.5f -> %.5f (Nearest Entry: %.5f, HedgePips: %.1f, SqueezePips: %.1f)", 
-                  oldPoint, g_hedgePoint, nearestEntry, HedgePips, SqueezePips);
-      SaveState();
+       double unbalancedVol = MathAbs(g_totalBuyLots - g_totalSellLots);
+       string hedgeDir = (g_totalBuyLots > g_totalSellLots) ? "SHORT" : "LONG";
+       PrintFormat("[HEDGE] Trailing Hedge Price Trailed: %.5f -> %.5f (%s, Vol: %.2f) (Nearest Entry: %.5f, HedgePips: %.1f, SqueezePips: %.1f)", 
+                   oldPoint, g_trailingHedgePrice, hedgeDir, unbalancedVol, nearestEntry, HedgePips, SqueezePips);
+      TriggerSave();
    }
    
    //--- 5. EXECUTION: Monitor if the delayed hedge point has been reached (per tick)
-   if((g_totalBuyLots > g_totalSellLots && m_symbol.Bid() <= g_hedgePoint) || (g_totalSellLots > g_totalBuyLots && m_symbol.Ask() >= g_hedgePoint)) {
+   if((g_totalBuyLots > g_totalSellLots && m_symbol.Bid() <= g_trailingHedgePrice) || (g_totalSellLots > g_totalBuyLots && m_symbol.Ask() >= g_trailingHedgePrice)) {
       double vol = MathAbs(g_totalBuyLots - g_totalSellLots);
       if(vol >= m_symbol.LotsMin()) {
          //--- PRD 2.5 Logic: Determine if this is a "Trailing Hedge" or standard "Hedge"
@@ -580,23 +627,25 @@ void ManageHedgeSqueeze()
             for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_BUY) if(stdPoint == -1 || m_position.PriceOpen() < stdPoint) stdPoint = m_position.PriceOpen();
             if(stdPoint != -1) stdPoint -= HedgePips * m_symbol.Point() * 10;
             //--- PRD 2.5: Trailing Hedge is at a WORSE (lower for Sell hedge) price than standard
-            if(g_hedgePoint < stdPoint - 0.000001) keyword = "Trailing Hedge"; 
+            if(g_trailingHedgePrice < stdPoint - 0.000001) keyword = "Trailing Hedge"; 
          } else {
             // Standard trigger is based on HIGHEST Sell
             for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_SELL) if(stdPoint == -1 || m_position.PriceOpen() > stdPoint) stdPoint = m_position.PriceOpen();
             if(stdPoint != -1) stdPoint += HedgePips * m_symbol.Point() * 10;
             //--- PRD 2.5: Trailing Hedge is at a WORSE (higher for Buy hedge) price than standard
-            if(g_hedgePoint > stdPoint + 0.000001) keyword = "Trailing Hedge";
+            if(g_trailingHedgePrice > stdPoint + 0.000001) keyword = "Trailing Hedge";
          }
 
-         PrintFormat("Squeeze Trigger Reached: Price at %.5f (Trigger: %.5f). Keyword: %s (Standard Point: %.5f)", 
-                     currentPrice, g_hedgePoint, keyword, stdPoint);
+          double unbalancedVol = MathAbs(g_totalBuyLots - g_totalSellLots);
+          string hedgeDir = (g_totalBuyLots > g_totalSellLots) ? "SHORT" : "LONG";
+          PrintFormat("[HEDGE] Squeeze Trigger Reached: Price at %.5f (Trigger: %.5f, %s, Vol: %.2f). Keyword: %s (Standard Point: %.5f)", 
+                      currentPrice, g_trailingHedgePrice, hedgeDir, unbalancedVol, keyword, stdPoint);
                      
          ExecuteHedgeOrReduce((g_totalBuyLots > g_totalSellLots) ? POSITION_TYPE_SELL : POSITION_TYPE_BUY, vol, keyword);
          
          g_lastHedgeTickTime = TimeCurrent(); 
-         g_hedgePoint = -1; 
-         SaveState();
+         g_trailingHedgePrice = -1; 
+         TriggerSave();
       }
    }
 }
@@ -611,7 +660,7 @@ void CheckHedgeTriggers()
    if(g_lastHedgeTickTime == TimeCurrent()) return;
 
    //--- 1. CRITICAL GUARD: Do not execute standard hedge if a Post-Trim delayed point is active
-   if(g_hedgePoint > 0 || g_totalBuyLots == g_totalSellLots) return;
+   if(g_trailingHedgePrice > 0 || g_totalBuyLots == g_totalSellLots) return;
    
    double limit = -1;
    
@@ -623,8 +672,8 @@ void CheckHedgeTriggers()
       //--- Trigger SELL hedge if price drops by HedgePips from lowest Buy
       double trigger = limit - HedgePips * m_symbol.Point() * 10;
       if(limit != -1 && m_symbol.Bid() <= trigger) {
-         PrintFormat("Standard Hedge Triggered (SELL): Price %.5f reached trigger %.5f (Lowest Buy: %.5f, HedgePips: %.1f)", 
-                     m_symbol.Bid(), trigger, limit, HedgePips);
+          PrintFormat("[HEDGE] Standard Hedge Triggered (SELL, Vol: %.2f): Price %.5f reached trigger %.5f (Lowest Buy: %.5f, HedgePips: %.1f)", 
+                      g_totalBuyLots - g_totalSellLots, m_symbol.Bid(), trigger, limit, HedgePips);
          ExecuteHedgeOrReduce(POSITION_TYPE_SELL, g_totalBuyLots - g_totalSellLots);
       }
    } else {
@@ -634,8 +683,8 @@ void CheckHedgeTriggers()
       //--- Trigger BUY hedge if price rises by HedgePips from highest Sell
       double trigger = limit + HedgePips * m_symbol.Point() * 10;
       if(limit != -1 && m_symbol.Ask() >= trigger) {
-         PrintFormat("Standard Hedge Triggered (BUY): Price %.5f reached trigger %.5f (Highest Sell: %.5f, HedgePips: %.1f)", 
-                     m_symbol.Ask(), trigger, limit, HedgePips);
+          PrintFormat("[HEDGE] Standard Hedge Triggered (BUY, Vol: %.2f): Price %.5f reached trigger %.5f (Highest Sell: %.5f, HedgePips: %.1f)", 
+                      g_totalSellLots - g_totalBuyLots, m_symbol.Ask(), trigger, limit, HedgePips);
          ExecuteHedgeOrReduce(POSITION_TYPE_BUY, g_totalSellLots - g_totalBuyLots);
       }
    }

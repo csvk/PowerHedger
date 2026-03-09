@@ -544,12 +544,12 @@ void ProcessFinalClosure(ulong ticket, double finalProfit, ENUM_POSITION_TYPE po
              for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_SELL) if(nearestEntry == -1 || m_position.PriceOpen() > nearestEntry) nearestEntry = m_position.PriceOpen();
          }
 
-         //--- Set g_trailingHedgePrice at exactly HedgePips from the exit price of the profitable trade
-         g_trailingHedgePrice = (g_totalBuyLots > g_totalSellLots) ? (exitPrice - HedgePips * m_symbol.Point() * 10) : (exitPrice + HedgePips * m_symbol.Point() * 10);
+         //--- Set g_trailingHedgePrice at exactly TrailingHedgePips from the exit price of the profitable trade
+         g_trailingHedgePrice = (g_totalBuyLots > g_totalSellLots) ? (exitPrice - TrailingHedgePips * m_symbol.Point() * 10) : (exitPrice + TrailingHedgePips * m_symbol.Point() * 10);
          double unbalancedVol = MathAbs(g_totalBuyLots - g_totalSellLots);
          string hedgeDir = (g_totalBuyLots > g_totalSellLots) ? "SHORT" : "LONG";
-         PrintFormat("[HEDGE] Trailing Hedge Price established: %.5f (%s, Vol: %.2f) (Nearest Entry: %.5f, ExitPrice: %.5f, HedgePips: %.1f). Squeezing active.", 
-                     g_trailingHedgePrice, hedgeDir, unbalancedVol, nearestEntry, exitPrice, HedgePips);
+         PrintFormat("[HEDGE] Trailing Hedge Price established: %.5f (%s, Vol: %.2f) (Nearest Entry: %.5f, ExitPrice: %.5f, TrailingHedgePips: %.1f). Squeezing active.", 
+                     g_trailingHedgePrice, hedgeDir, unbalancedVol, nearestEntry, exitPrice, TrailingHedgePips);
       } else {
          //--- PRD 3.5 Safeguard: If we already have a delayed hedge point active, do not reset it
          //--- intermediate loss closures in the same tick should not wipe out the delayed point.
@@ -584,11 +584,11 @@ void ManageHedgeSqueeze()
    double dist = MathAbs(currentPrice - g_trailingHedgePrice) / (m_symbol.Point() * 10);
    
    //--- 4. PRD 3.5: Trailing Adjustment (Squeezing)
-   //--- Logic: If price moves further away than HedgePips + SqueezePips, trail the hedge point.
+   //--- Logic: If price moves further away than TrailingHedgePips + SqueezePips, trail the hedge point.
    //--- PRD Fix: Use SqueezePips as a "trailing step" to ensure discrete updates and avoid sub-pip jitter.
-   if(dist > HedgePips + SqueezePips) {
+   if(dist > TrailingHedgePips + SqueezePips) {
       double oldPoint = g_trailingHedgePrice;
-      g_trailingHedgePrice = (g_totalBuyLots > g_totalSellLots) ? (currentPrice - HedgePips * m_symbol.Point() * 10) : (currentPrice + HedgePips * m_symbol.Point() * 10);
+      g_trailingHedgePrice = (g_totalBuyLots > g_totalSellLots) ? (currentPrice - TrailingHedgePips * m_symbol.Point() * 10) : (currentPrice + TrailingHedgePips * m_symbol.Point() * 10);
       
       //--- Find nearest entry of the unbalanced side
       double nearestEntry = -1;
@@ -600,31 +600,40 @@ void ManageHedgeSqueeze()
 
        double unbalancedVol = MathAbs(g_totalBuyLots - g_totalSellLots);
        string hedgeDir = (g_totalBuyLots > g_totalSellLots) ? "SHORT" : "LONG";
-       PrintFormat("[HEDGE] Trailing Hedge Price Trailed: %.5f -> %.5f (%s, Vol: %.2f) (Nearest Entry: %.5f, HedgePips: %.1f, SqueezePips: %.1f)", 
-                   oldPoint, g_trailingHedgePrice, hedgeDir, unbalancedVol, nearestEntry, HedgePips, SqueezePips);
+       PrintFormat("[HEDGE] Trailing Hedge Price Trailed: %.5f -> %.5f (%s, Vol: %.2f) (Nearest Entry: %.5f, TrailingHedgePips: %.1f, SqueezePips: %.1f)", 
+                   oldPoint, g_trailingHedgePrice, hedgeDir, unbalancedVol, nearestEntry, TrailingHedgePips, SqueezePips);
       TriggerSave();
    }
    
    //--- 5. EXECUTION: Monitor if the delayed hedge point has been reached (per tick)
-   if((g_totalBuyLots > g_totalSellLots && m_symbol.Bid() <= g_trailingHedgePrice) || (g_totalSellLots > g_totalBuyLots && m_symbol.Ask() >= g_trailingHedgePrice)) {
+   //--- Logic: Monitor if either the Trailing Hedge Point OR the standard HedgePips boundary is reached.
+   double stdPoint = -1;
+   if(g_totalBuyLots > g_totalSellLots) {
+      for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_BUY) if(stdPoint == -1 || m_position.PriceOpen() < stdPoint) stdPoint = m_position.PriceOpen();
+      if(stdPoint != -1) stdPoint -= HedgePips * m_symbol.Point() * 10;
+   } else {
+      for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_SELL) if(stdPoint == -1 || m_position.PriceOpen() > stdPoint) stdPoint = m_position.PriceOpen();
+      if(stdPoint != -1) stdPoint += HedgePips * m_symbol.Point() * 10;
+   }
+
+   bool triggerReached = false;
+   if(g_totalBuyLots > g_totalSellLots) {
+       if(m_symbol.Bid() <= g_trailingHedgePrice || (stdPoint != -1 && m_symbol.Bid() <= stdPoint)) triggerReached = true;
+   } else {
+       if(m_symbol.Ask() >= g_trailingHedgePrice || (stdPoint != -1 && m_symbol.Ask() >= stdPoint)) triggerReached = true;
+   }
+
+   if(triggerReached) {
       double vol = MathAbs(g_totalBuyLots - g_totalSellLots);
       if(vol >= m_symbol.LotsMin()) {
          //--- PRD 2.5 Logic: Determine if this is a "Trailing Hedge" or standard "Hedge"
          string keyword = "Hedge";
-         double stdPoint = -1;
          
+         //--- PRD 2.5: Trailing Hedge is at a WORSE price than standard trigger
          if(g_totalBuyLots > g_totalSellLots) {
-            // Standard trigger is based on LOWEST Buy
-            for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_BUY) if(stdPoint == -1 || m_position.PriceOpen() < stdPoint) stdPoint = m_position.PriceOpen();
-            if(stdPoint != -1) stdPoint -= HedgePips * m_symbol.Point() * 10;
-            //--- PRD 2.5: Trailing Hedge is at a WORSE (lower for Sell hedge) price than standard
-            if(g_trailingHedgePrice < stdPoint - 0.000001) keyword = "Trailing Hedge"; 
+            if(m_symbol.Bid() < stdPoint - 0.000001) keyword = "Trailing Hedge"; 
          } else {
-            // Standard trigger is based on HIGHEST Sell
-            for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_SELL) if(stdPoint == -1 || m_position.PriceOpen() > stdPoint) stdPoint = m_position.PriceOpen();
-            if(stdPoint != -1) stdPoint += HedgePips * m_symbol.Point() * 10;
-            //--- PRD 2.5: Trailing Hedge is at a WORSE (higher for Buy hedge) price than standard
-            if(g_trailingHedgePrice > stdPoint + 0.000001) keyword = "Trailing Hedge";
+            if(m_symbol.Ask() > stdPoint + 0.000001) keyword = "Trailing Hedge";
          }
 
           double unbalancedVol = MathAbs(g_totalBuyLots - g_totalSellLots);

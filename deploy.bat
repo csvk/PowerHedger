@@ -5,7 +5,7 @@ setlocal
 set VERSION=%~1
 if "%VERSION%"=="" (
     echo Error: No version specified.
-    echo Usage: deploy.bat [version] (e.g., deploy.bat v1)
+    echo Usage: deploy.bat [version] ^(e.g., deploy.bat v1^)
     exit /b 1
 )
 

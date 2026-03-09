@@ -123,8 +123,9 @@ Profits from closed positions are distributed according to the `KeepProfitPercen
 ### 3.5 Squeezing the Hedge (Post-Trim Hedge Adjustment)
 
 - **Post-Trim Balance Check**: If the volume remains unbalanced after trimming, a temporary `PostTrimHedgePricePoint` is established.
-- **Calculation**: Set at `HedgePips` from the exit price of the closed profitable trade, in the direction of the required hedge.
-- **Trailing Adjustment (Squeezing)**: If the price moves away from this point, the `PostTrimHedgePricePoint` must dynamically trail the price by the distance defined in `SqueezePips`.
+- **Calculation**: Set at `TrailingHedgePips` from the exit price of the closed profitable trade, in the direction of the required hedge.
+- **Trailing Adjustment (Squeezing)**: If the price moves away from this point, the `PostTrimHedgePricePoint` must dynamically trail the price by the distance defined in `SqueezePips`. This adjustment uses `TrailingHedgePips` as the base distance for the trailing point.
+- **Safety Handover**: If the price reverses towards the entries, the hedge must be triggered if it reaches the standard `HedgePips` boundary (Section 2.3), even if the `PostTrimHedgePricePoint` hasn't been reached.
 - **Recalculation with New Entries**: If a new strategic entry occurs while a `PostTrimHedgePricePoint` is active, the hedge price point must be recalculated. It is tracked based on the current unbalanced volume and the entry price of the nearest opposite trade(s) to ensure the hedge trigger remains accurate relative to the updated balance.
 - **Handover to Standard Hedging**: If a new strategic entry occurs while a `PostTrimHedgePricePoint` (Squeezing) is active, the squeezing logic must immediately hand over to standard hedging logic (Section 2.3). The hedge trigger point is then recalculated based on `HedgePips` from the nearest position.
 - **Inactive State**: When no Post-Trim Hedge is required, the value in the JSON file should be maintained as a negative value.
@@ -181,6 +182,7 @@ Instead of individual inputs, EMA periods are driven by a single `EMAPeriods` En
 - **TrailingStopPips (Double)**: Distance to trail price.
 - **KeepProfitPercent (Double 0.0-1.0)**: Ratio of profit to retain vs. use for trimming.
 - **IntermediateTrimPips (Double)**: Trailing distance required to trigger subsequent intermediate trims.
+- **TrailingHedgePips (Double)**: Dedicated distance for post-trim trailing hedges.
 - **SqueezePips (Double)**: Distance used to trail the Post-Trim Hedge Price Point.
 
 #### Group: Market/Session Filters (Flat Market Only)

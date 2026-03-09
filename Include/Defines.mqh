@@ -74,8 +74,12 @@ enum ENUM_BB_TREND_RULE
 //--- Strategy Prioritization (PRD 2.1)
 enum ENUM_STRATEGY_PRIORITY
 {
-   STRAT_1, // Strategy 1 prioritized
-   STRAT_2  // Strategy 2 prioritized
+   PRIORITY_S1_S2_S3, // S1 - S2 - S3
+   PRIORITY_S2_S1_S3, // S2 - S1 - S3
+   PRIORITY_S1_S3_S2, // S1 - S3 - S2
+   PRIORITY_S2_S3_S1, // S2 - S3 - S1
+   PRIORITY_S3_S1_S2, // S3 - S1 - S2
+   PRIORITY_S3_S2_S1  // S3 - S2 - S1
 };
 
 //--- Outside Entry Permission Rules (PRD 2.1)

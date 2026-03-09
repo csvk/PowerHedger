@@ -96,42 +96,33 @@ void CheckNewEntries()
          else PrintFormat("[DECISION] Random SELL blocked: %s", sellReason);
       }
    } else {
-      int s1_signal = GetStrategySignal(1);
-      int s2_signal = GetStrategySignal(2);
+      //--- PRD 2.1: Priority-based strategy invocation with "Use Strategy" toggles
+      int stratOrder[3] = {0, 0, 0};
       
-      if(PrioritizeStrategy == STRAT_1) {
-         if(s1_signal == 1) {
-            if(buyAllowed) { signal = 1; strategyName = S1Name; context = buyContext; }
-            else PrintFormat("[DECISION] %s BUY blocked: %s", S1Name, buyReason);
+      switch(PrioritizeStrategy) {
+         case PRIORITY_S1_S2_S3: stratOrder[0]=1; stratOrder[1]=2; stratOrder[2]=3; break;
+         case PRIORITY_S2_S1_S3: stratOrder[0]=2; stratOrder[1]=1; stratOrder[2]=3; break;
+         case PRIORITY_S1_S3_S2: stratOrder[0]=1; stratOrder[1]=3; stratOrder[2]=2; break;
+         case PRIORITY_S2_S3_S1: stratOrder[0]=2; stratOrder[1]=3; stratOrder[2]=1; break;
+         case PRIORITY_S3_S1_S2: stratOrder[0]=3; stratOrder[1]=1; stratOrder[2]=2; break;
+         case PRIORITY_S3_S2_S1: stratOrder[0]=3; stratOrder[1]=2; stratOrder[2]=1; break;
+      }
+      
+      for(int i=0; i<3; i++) {
+         int sNum = stratOrder[i];
+         bool isUsed = (sNum == 1) ? S1UseStrategy : (sNum == 2 ? S2UseStrategy : S3UseStrategy);
+         if(!isUsed) continue;
+         
+         int s_signal = GetStrategySignal(sNum);
+         string sName = (sNum == 1) ? S1Name : (sNum == 2 ? S2Name : S3Name);
+         
+         if(s_signal == 1) {
+            if(buyAllowed) { signal = 1; strategyName = sName; context = buyContext; break; }
+            else PrintFormat("[DECISION] %s BUY blocked: %s", sName, buyReason);
          }
-         else if(s1_signal == -1) {
-            if(sellAllowed) { signal = -1; strategyName = S1Name; context = sellContext; }
-            else PrintFormat("[DECISION] %s SELL blocked: %s", S1Name, sellReason);
-         }
-         else if(s2_signal == 1) {
-            if(buyAllowed) { signal = 1; strategyName = S2Name; context = buyContext; }
-            else PrintFormat("[DECISION] %s BUY blocked: %s", S2Name, buyReason);
-         }
-         else if(s2_signal == -1) {
-            if(sellAllowed) { signal = -1; strategyName = S2Name; context = sellContext; }
-            else PrintFormat("[DECISION] %s SELL blocked: %s", S2Name, sellReason);
-         }
-      } else {
-         if(s2_signal == 1) {
-            if(buyAllowed) { signal = 1; strategyName = S2Name; context = buyContext; }
-            else PrintFormat("[DECISION] %s BUY blocked: %s", S2Name, buyReason);
-         }
-         else if(s2_signal == -1) {
-            if(sellAllowed) { signal = -1; strategyName = S2Name; context = sellContext; }
-            else PrintFormat("[DECISION] %s SELL blocked: %s", S2Name, sellReason);
-         }
-         else if(s1_signal == 1) {
-            if(buyAllowed) { signal = 1; strategyName = S1Name; context = buyContext; }
-            else PrintFormat("[DECISION] %s BUY blocked: %s", S1Name, buyReason);
-         }
-         else if(s1_signal == -1) {
-            if(sellAllowed) { signal = -1; strategyName = S1Name; context = sellContext; }
-            else PrintFormat("[DECISION] %s SELL blocked: %s", S1Name, sellReason);
+         else if(s_signal == -1) {
+            if(sellAllowed) { signal = -1; strategyName = sName; context = sellContext; break; }
+            else PrintFormat("[DECISION] %s SELL blocked: %s", sName, sellReason);
          }
       }
    }

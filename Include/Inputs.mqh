@@ -47,13 +47,14 @@ input bool     FridayActive         = true;      // Allow Friday
 
 //--- Strategy Configuration
 input group "Strategy Priority & Random Mode"
-input bool     EnableRandom         = true;      // Prioritize Random
+input bool     EnableRandom         = false;     // Prioritize Random
 input int      RandomSeed           = 12345;     // Random Seed
-input ENUM_STRATEGY_PRIORITY PrioritizeStrategy = STRAT_1; // Strategy Priority
+input ENUM_STRATEGY_PRIORITY PrioritizeStrategy = PRIORITY_S1_S2_S3; // Strategy Priority
 
 //--- PRD 5.4: Group - Strategy 1 Indicators
 input group "=============== Strategy 1 Configuration ==============="
 input string          S1Name            = "Trend"; // Strategy Name
+input bool            S1UseStrategy     = true;    // Use Strategy 1
 
 input group "S1 RSI Rules"
 input bool            S1UseRSI          = true;    // Use RSI
@@ -86,6 +87,7 @@ input ENUM_BB_TREND_RULE S1BBRule       = BB_AGAINST_TREND; // BB Rule
 //--- PRD 5.5: Group - Strategy 2 Indicators
 input group "=============== Strategy 2 Configuration ==============="
 input string          S2Name            = "Reversal"; // Strategy Name
+input bool            S2UseStrategy     = true;    // Use Strategy 2
 
 input group "S2 RSI Rules"
 input bool            S2UseRSI          = true;    // Use RSI
@@ -114,3 +116,35 @@ input ENUM_TF_OPTIONS S2BBTimeframe     = TF_M5;   // BB Timeframe
 input double          S2BBDeviations    = 2.0;     // BB Deviations
 input double          S2BBBufferPips    = 2.0;       // Bollinger Buffer Pips
 input ENUM_BB_TREND_RULE S2BBRule       = BB_AGAINST_TREND; // BB Rule
+input group "=============== Strategy 3 Configuration ==============="
+input string          S3Name            = "Ranging"; // Strategy Name
+input bool            S3UseStrategy     = true;    // Use Strategy 3
+
+input group "S3 RSI Rules"
+input bool            S3UseRSI          = true;    // Use RSI
+input ENUM_TF_OPTIONS S3RSITimeframe    = TF_M15;  // RSI Timeframe
+input int             S3RSIPeriod       = 14;      // RSI Period
+input double          S3RSISellLevel    = 70.0;    // Sell Level (Buy = 100 - SellLevel)
+
+input group "S3 EMA Rules"
+input bool            S3UseEMA          = true;    // Use EMA
+input ENUM_TF_OPTIONS S3EMATimeframe    = TF_M15;  // EMA Timeframe
+input ENUM_EMA_SETS   S3EMAPeriods      = EMA_P1;  // EMA Periods (Fast - Mid - Slow)
+input ENUM_EMA_TREND_RULE S3EMATrendRule = EMA_RANGING; // EMA Trend Rule
+
+input group "S3 ADX Rules"
+input bool            S3UseADX          = true;    // Use ADX
+input ENUM_TF_OPTIONS S3ADXTimeframe    = TF_M15;  // ADX Timeframe
+input int             S3ADXPeriod       = 14;      // ADX Period
+input double          S3ADXTrendLevel   = 25.0;      // ADX Trend Level (Rule: With Trend)
+input double          S3ADXExtremeLevel = 45.0;      // ADX Extreme Level (Rule: Against Trend)
+input double          S3ADXRangeLevel   = 20.0;      // ADX Range Level (Rule: Ranging)
+input ENUM_ADX_TREND_RULE S3ADXTrendRule = ADX_RANGING; // ADX Trend Rule
+
+input group "S3 Bollinger Band Rules"
+input bool            S3UseBB           = false;   // Use Bollinger Bands
+input ENUM_TF_OPTIONS S3BBTimeframe     = TF_M15;  // BB Timeframe
+input double          S3BBDeviations    = 2.0;     // BB Deviations
+input double          S3BBBufferPips    = 2.0;       // Bollinger Buffer Pips
+input ENUM_BB_TREND_RULE S3BBRule       = BB_AVOID_EXTREME_TREND; // BB Rule
+

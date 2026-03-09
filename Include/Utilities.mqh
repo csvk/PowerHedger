@@ -274,7 +274,7 @@ int GetStrategySignal(int strategyNum)
       adxExtremeLevel = S1ADXExtremeLevel;
       adxRangeLevel   = S1ADXRangeLevel;
       bbBufferPips    = S1BBBufferPips;
-   } else {
+   } else if(strategyNum == 2) {
       useRSI = S2UseRSI; tfRSI = S2RSITimeframe; rsiPeriod = S2RSIPeriod; rsiSellLevel = S2RSISellLevel;
       useEMA = S2UseEMA; tfEMA = S2EMATimeframe; emaSet = S2EMAPeriods; emaRule = S2EMATrendRule;
       useADX = S2UseADX; tfADX = S2ADXTimeframe; adxPeriod = S2ADXPeriod; adxRule = S2ADXTrendRule;
@@ -284,6 +284,16 @@ int GetStrategySignal(int strategyNum)
       adxExtremeLevel = S2ADXExtremeLevel;
       adxRangeLevel   = S2ADXRangeLevel;
       bbBufferPips    = S2BBBufferPips;
+   } else {
+      useRSI = S3UseRSI; tfRSI = S3RSITimeframe; rsiPeriod = S3RSIPeriod; rsiSellLevel = S3RSISellLevel;
+      useEMA = S3UseEMA; tfEMA = S3EMATimeframe; emaSet = S3EMAPeriods; emaRule = S3EMATrendRule;
+      useADX = S3UseADX; tfADX = S3ADXTimeframe; adxPeriod = S3ADXPeriod; adxRule = S3ADXTrendRule;
+      useBB = S3UseBB; tfBB = S3BBTimeframe; bbDev = S3BBDeviations; bbRule = S3BBRule;
+      
+      adxTrendLevel   = S3ADXTrendLevel;
+      adxExtremeLevel = S3ADXExtremeLevel;
+      adxRangeLevel   = S3ADXRangeLevel;
+      bbBufferPips    = S3BBBufferPips;
    }
 
    //--- Signal tracking for matrix evaluation
@@ -294,10 +304,10 @@ int GetStrategySignal(int strategyNum)
    if(useRSI) {
       anyActive = true;
       rsiSig = IND_NEUTRAL; // Default to neutral/block
-      int h = (strategyNum == 1) ? g_hRSI1 : g_hRSI2;
+      int h = (strategyNum == 1) ? g_hRSI1 : (strategyNum == 2 ? g_hRSI2 : g_hRSI3);
       if(h == INVALID_HANDLE) {
          h = iRSI(_Symbol, (ENUM_TIMEFRAMES)tfRSI, rsiPeriod, PRICE_CLOSE);
-         if(strategyNum == 1) g_hRSI1 = h; else g_hRSI2 = h;
+         if(strategyNum == 1) g_hRSI1 = h; else if(strategyNum == 2) g_hRSI2 = h; else g_hRSI3 = h;
       }
       double rsi[];
       if(CopyBuffer(h, 0, 0, 2, rsi) == 2) {
@@ -318,21 +328,21 @@ int GetStrategySignal(int strategyNum)
       emaSig = IND_NEUTRAL;
       int f, m, s;
       GetEMAPeriods(emaSet, f, m, s);
-      int hf = (strategyNum == 1) ? g_hEMA1_F : g_hEMA2_F;
-      int hm = (strategyNum == 1) ? g_hEMA1_M : g_hEMA2_M;
-      int hs = (strategyNum == 1) ? g_hEMA1_S : g_hEMA2_S;
+      int hf = (strategyNum == 1) ? g_hEMA1_F : (strategyNum == 2 ? g_hEMA2_F : g_hEMA3_F);
+      int hm = (strategyNum == 1) ? g_hEMA1_M : (strategyNum == 2 ? g_hEMA2_M : g_hEMA3_M);
+      int hs = (strategyNum == 1) ? g_hEMA1_S : (strategyNum == 2 ? g_hEMA2_S : g_hEMA3_S);
       
       if(hf == INVALID_HANDLE) {
          hf = iMA(_Symbol, (ENUM_TIMEFRAMES)tfEMA, f, 0, MODE_EMA, PRICE_CLOSE);
-         if(strategyNum == 1) g_hEMA1_F = hf; else g_hEMA2_F = hf;
+         if(strategyNum == 1) g_hEMA1_F = hf; else if(strategyNum == 2) g_hEMA2_F = hf; else g_hEMA3_F = hf;
       }
       if(hm == INVALID_HANDLE) {
          hm = iMA(_Symbol, (ENUM_TIMEFRAMES)tfEMA, m, 0, MODE_EMA, PRICE_CLOSE);
-         if(strategyNum == 1) g_hEMA1_M = hm; else g_hEMA2_M = hm;
+         if(strategyNum == 1) g_hEMA1_M = hm; else if(strategyNum == 2) g_hEMA2_M = hm; else g_hEMA3_M = hm;
       }
       if(hs == INVALID_HANDLE) {
          hs = iMA(_Symbol, (ENUM_TIMEFRAMES)tfEMA, s, 0, MODE_EMA, PRICE_CLOSE);
-         if(strategyNum == 1) g_hEMA1_S = hs; else g_hEMA2_S = hs;
+         if(strategyNum == 1) g_hEMA1_S = hs; else if(strategyNum == 2) g_hEMA2_S = hs; else g_hEMA3_S = hs;
       }
       
       double emaF[], emaM[], emaS[];
@@ -364,10 +374,10 @@ int GetStrategySignal(int strategyNum)
    if(useADX) {
       anyActive = true;
       adxSig = IND_NEUTRAL;
-      int h = (strategyNum == 1) ? g_hADX1 : g_hADX2;
+      int h = (strategyNum == 1) ? g_hADX1 : (strategyNum == 2 ? g_hADX2 : g_hADX3);
       if(h == INVALID_HANDLE) {
          h = iADX(_Symbol, (ENUM_TIMEFRAMES)tfADX, adxPeriod);
-         if(strategyNum == 1) g_hADX1 = h; else g_hADX2 = h;
+         if(strategyNum == 1) g_hADX1 = h; else if(strategyNum == 2) g_hADX2 = h; else g_hADX3 = h;
       }
       double adx[], diPlus[], diMinus[];
       if(CopyBuffer(h, 0, 0, 1, adx) == 1 && CopyBuffer(h, 1, 0, 1, diPlus) == 1 && CopyBuffer(h, 2, 0, 1, diMinus) == 1) {
@@ -409,10 +419,10 @@ int GetStrategySignal(int strategyNum)
    if(useBB) {
       anyActive = true;
       bbSig = IND_NEUTRAL;
-      int h = (strategyNum == 1) ? g_hBB1 : g_hBB2;
+      int h = (strategyNum == 1) ? g_hBB1 : (strategyNum == 2 ? g_hBB2 : g_hBB3);
       if(h == INVALID_HANDLE) {
          h = iBands(_Symbol, (ENUM_TIMEFRAMES)tfBB, bbPeriod, 0, bbDev, PRICE_CLOSE);
-         if(strategyNum == 1) g_hBB1 = h; else g_hBB2 = h;
+         if(strategyNum == 1) g_hBB1 = h; else if(strategyNum == 2) g_hBB2 = h; else g_hBB3 = h;
       }
       double upper[], lower[];
       if(CopyBuffer(h, 1, 0, 1, upper) == 1 && CopyBuffer(h, 2, 0, 1, lower) == 1) {

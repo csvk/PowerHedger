@@ -1,0 +1,108 @@
+# Product Requirements Document (PRD) v2: Symmetrical Hedging & Sequence Management
+
+## 1. Product Overview
+
+PowerHedger v2 is a high-performance MetaTrader 5 Expert Advisor (EA) designed for professional-grade risk management through **Symmetrical Sequence Isolation**. Unlike traditional hedging systems that unbalance positions to recover, v2 treats every hedged pair as a "Locked Sequence"—a fixed liability that is systematically reduced using profits from independent trade cycles.
+
+The core objective is to prevent runaway drawdowns by ensuring that once a risk threshold is hit, the exposure is locked perfectly and only reduced symmetrically, maintaining a zero-sum delta for that specific sequence.
+
+---
+
+## 2. Core Trading Logic
+
+### 2.1 Entry Strategy & Filters
+The EA identifies trade opportunities using a combination of technical indicators but operates under a strict isolation rule.
+
+- **One-Active-Trade Rule**: At any given time, only **one** Active (unhedged) trade is permitted on the chart.
+    - An Active trade must either:
+        1. Close in profit (via Trailing SL).
+        2. Reach the hedge trigger distance (becoming a Locked Sequence).
+    - Only then will the EA look for a new signal to open another trade.
+- **Entry Rules**: High-probability signals are derived from Strategy 1 (Trend), Strategy 2 (Reversal), or Random (for testing).
+- **Session & Weekday Filters**: Entries are subject to configurable Sydney, Tokyo, London, and New York session windows and specific weekdays.
+- **No Distance Rule**: There is no minimum distance requirement (`MinPipGap`) between a new signal and existing hedged trades.
+
+### 2.2 Indicator Logic
+The EA uses a "Universal Alignment" principle. All indicators set to `Use = True` must align in the same direction, or return `PASS`. Any `NEUTRAL` output (rule mismatch) blocks the trade.
+
+- **RSI**: Calculated on M1-D1. Crossovers of defined Buy/Sell levels.
+- **EMA Sets**: Groups of three EMAs (Fast, Mid, Slow). Periods derived from `EMAPeriods` Enum (e.g., EMA_P1: 5-10-20).
+    - `WITH_TREND`: Fast > Mid > Slow.
+    - `AGAINST_TREND`: Fast < Mid < Slow.
+    - `RANGING`: Not aligned.
+- **ADX**: Trend strength and directional (+DI/-DI) filters.
+- **Bollinger Bands**: Volatility filters and extreme price rejection.
+
+---
+
+## 3. Sequence & Magic Number Management
+
+### 3.1 Sequence Isolation
+Every trade cycle is isolated via a unique Magic Number.
+- **BaseMagicNumber (Int)**: The root identifier (e.g., 1000).
+- **SequenceID (Persistent Int)**: Increments for every new initial trade.
+- **ID Assignment**: `UniqueMagic = BaseMagicNumber + SequenceID`.
+- **Hedge Matching**: When an active trade is hedged, the protective position is opened with the **exact same UniqueMagic**.
+
+### 3.2 Manual Trade Adoption
+- **Scope**: The EA manages all trades opened manually (where `Magic == 0`) for the **same symbol** as the EA.
+- **Adoption Process**:
+    1. The EA scans all open positions on the account for the current symbol.
+    2. Any position with `Magic == 0` is identified.
+    3. The EA assigns a unique `SequenceID` to this ticket and stores the ticket-to-magic mapping in its persistent JSON file.
+    4. **Management**: Once adopted, these positions are managed exactly like signal entries (Trailing Stops, Hedging, and Trimming).
+    5. **Hedge Execution**: If a manual trade needs a hedge, the EA will open the hedge with the assigned `SequenceID`.
+
+---
+
+## 4. Risk Management: Hedging & Lockdown
+
+### 4.1 Symmetrical Hedging
+- **HedgePips (Double)**: The pip distance from the entry of an unbalanced position required to trigger a hedge.
+- **Execution**: When price breaches `HedgePips`, a Market Order is opened for the exact missing volume to reach a perfectly balanced state (Buy Lots == Sell Lots).
+- **Lockdown State**: Once balanced, the Sequence is "Locked". 
+    - **No Trailing Stop**: All trailing functionality is disabled for Locked positions.
+    - **Invariant Exposure**: The net lot size of the sequence remains 0 until a symmetrical trim occurs.
+
+### 4.2 Chart-Level Limits
+- **MaxLots (Double)**: The maximum total lot size allowed in one direction (Total Buy or Total Sell) across ALL Magic Numbers for this chart.
+- If a new entry or hedge would breach `MaxLots`, the action is blocked.
+
+---
+
+## 5. Trade Management & Symmetrical Trimming
+
+Efficient debt reduction via profit harvesting.
+
+### 5.1 Active Trade Management
+- **LockProfitPips**: The profit level required to activate the Trailing SL.
+- **TrailingStopPips**: The distance used to trail the price.
+
+### 5.2 Symmetrical Trimming Algorithm
+"Trimming" is the process of closing equal volumes of the Buy and Sell legs of a Locked Sequence simultaneously.
+
+- **Trimming Fund Sources**:
+    1. **Active Trades (Booked)**: Full profit harvested when an Active trade closes.
+    2. **Active Trades (Floating)**: "Intermediate Trims" performed using the floating profit generated by an Active trade's Trailing Stop as it moves.
+    3. **Locked Sequences (Harvested)**: When a hedged pair is trimmed, the profit from the winning leg is used to offset the cost of the losing leg.
+- **Pip Gap = Cost**: Trimming a hedge always has a cost equal to the entry pip gap between the Buy and Sell.
+- **Target Selection (Farthest Mid-Price)**:
+    - Calculation: `MidPrice = (Entry_Buy + Entry_Sell) / 2`.
+    - The EA always targets the Locked Sequence where the `MidPrice` is the numerically farthest from the current market price.
+- **Profit Tally**: Unspent profit (below min lot size cost) is stored in a persistent `ProfitTally` JSON file.
+
+### 5.3 Capitulation Rule
+- If the total lot size or risk threshold is reached, the EA executes a **Capitulation**: fully closing the Locked Sequence with the **farthest Mid-Price** at a market loss.
+
+---
+
+## 6. Persistence & Logging
+
+- **MagicNumber.json**: Stores `SequenceID`, `ProfitTally`, and `ManualTicketMaps`. 
+- **Journal Categories**:
+    - **[SIGNAL]**: New sequence identification.
+    - **[MANUAL]**: Manual trade integration (adopting Magic 0 trades for the same symbol).
+    - **[HEDGE]**: Sequence lockdown event.
+    - **[TRIM]**: Debt reduction details (Profit used, volumes closed).
+    - **[CAPITULATION]**: Emergency margin recovery.
+    - **[TRAILING]**: Updates to SL for Active trades.

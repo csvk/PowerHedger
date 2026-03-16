@@ -1,3 +1,6 @@
+#ifndef _DEFINES_MQH_
+#define _DEFINES_MQH_
+
 //+------------------------------------------------------------------+
 //|                                                      Defines.mqh |
 //|                                  Copyright 2026, Souvik Chanda  |
@@ -92,3 +95,5 @@ enum ENUM_MARKET_CONTEXT
    CONTEXT_MANUAL, // Adopted manual trade
    CONTEXT_HEDGE   // Protective position
 };
+
+#endif // _DEFINES_MQH_

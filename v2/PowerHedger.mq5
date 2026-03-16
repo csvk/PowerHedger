@@ -14,12 +14,12 @@
 #property strict
 
 //--- Include modular components
-#include "Include\Defines.mqh"
-#include "Include\Inputs.mqh"
-#include "Include\Globals.mqh"
-#include "Include\Utilities.mqh"
-#include "Include\Persistence.mqh"
-#include "Include\TradeLogic.mqh"
+#include "Include/Defines.mqh"
+#include "Include/Inputs.mqh"
+#include "Include/Globals.mqh"
+#include "Include/Utilities.mqh"
+#include "Include/Persistence.mqh"
+#include "Include/TradeLogic.mqh"
 
 //+------------------------------------------------------------------+
 //| Initialization                                                   |
@@ -75,7 +75,7 @@ void OnTick()
    AdoptManualTrades();
    
    // 3. Trimming (Risk Reduction)
-   PerformSymmetricalTrimming();
+   // PerformSymmetricalTrimming(); // Now event-triggered via ReconcileRecentDeals and ManageTrailingSL
    
    // 4. Entry & Hedging
    CheckNewEntries();

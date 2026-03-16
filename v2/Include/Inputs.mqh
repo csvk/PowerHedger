@@ -1,3 +1,6 @@
+#ifndef _INPUTS_MQH_
+#define _INPUTS_MQH_
+
 //+------------------------------------------------------------------+
 //|                                                       Inputs.mqh |
 //|                                  Copyright 2026, Souvik Chanda  |
@@ -24,6 +27,7 @@ input double   HedgePips            = 30.0;      // Hedge Pips (Symmetrical Trig
 //--- PRD 5.1: Group - Trade Management & Trimming
 input group "Trade Management & Trimming"
 input double   LockProfitPips       = 10.0;      // Lock Profit Pips (Activate Trailing SL)
+input double   KeepProfitPercent    = 50.0;      // Keep Profit Percent (Trimming Fund portion)
 input double   TrailingStopPips     = 5.0;       // Trailing Stop Pips
 
 //--- PRD 2.3: Group - Market/Session Filters (Entry Only)
@@ -112,3 +116,5 @@ input double          S2BBDeviations    = 2.0;     // BB Deviations
 input double          S2BBBufferPips    = 2.0;       // Bollinger Buffer Pips
 input ENUM_BB_TREND_RULE S2BBRule       = BB_AGAINST_TREND; // BB Rule
 
+
+#endif // _INPUTS_MQH_

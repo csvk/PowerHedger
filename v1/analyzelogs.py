@@ -311,12 +311,19 @@ class TradeAnalyzer:
             return
         keys = data[0].keys()
         os.makedirs(os.path.dirname(filename), exist_ok=True)
-        with open(filename, 'w', newline='', encoding='utf-8') as f:
-            dict_writer = csv.DictWriter(f, fieldnames=keys)
-            dict_writer.writeheader()
-            dict_writer.writerows(data)
-        print(f"Saved analysis to {filename}")
-        
+
+        while True:
+            try:
+                with open(filename, 'w', newline='', encoding='utf-8') as f:
+                    dict_writer = csv.DictWriter(f, fieldnames=keys)
+                    dict_writer.writeheader()
+                    dict_writer.writerows(data)
+                print(f"Saved analysis to {filename}")
+                break
+            except PermissionError:
+                print(f"\n[!] ERROR: Could not save to {filename}. The file is likely open in another program (e.g., Excel).")
+                input("Please close the file and press Enter to retry, or Ctrl+C to cancel...")
+
         try:
             print(f"Opening {filename}...")
             os.startfile(os.path.abspath(filename))

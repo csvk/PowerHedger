@@ -1,3 +1,6 @@
+#ifndef _GLOBALS_MQH_
+#define _GLOBALS_MQH_
+
 //+------------------------------------------------------------------+
 //|                                                      Globals.mqh |
 //|                                  Copyright 2026, Souvik Chanda  |
@@ -24,6 +27,7 @@ double   g_totalSellLots = 0;    // Sum of volume for all open Sell positions
 double   g_profitTally   = 0;    // Persistent bucket for fractional profit left after trimming (PRD 5.2)
 int      g_nextSequenceID = 1;   // Persistent ID for new sequences (PRD 3.1)
 bool     g_isStateDirty  = false; // Dirty flag to consolidate redundant SaveState calls
+datetime g_lastTrimTime  = 0;     // Timestamp of last trim to prevent double-triggering
 
 //--- SEQUENCE INFO: Tracks individual trade cycles (PRD 3.1, 5.2)
 struct SequenceInfo {
@@ -32,6 +36,7 @@ struct SequenceInfo {
    ENUM_SEQUENCE_STATE state; // ACTIVE or LOCKED
    double volBuy;             // Current open buy volume
    double volSell;            // Current open sell volume
+   double harvestedProfit;    // Amount already used for trimming/tally from this active trade
 };
 SequenceInfo g_sequences[];   // Dynamic array of all managed sequences
 
@@ -52,3 +57,5 @@ int g_hRSI1 = INVALID_HANDLE, g_hEMA1_F = INVALID_HANDLE, g_hEMA1_M = INVALID_HA
 int g_hADX1 = INVALID_HANDLE, g_hBB1 = INVALID_HANDLE;
 int g_hRSI2 = INVALID_HANDLE, g_hEMA2_F = INVALID_HANDLE, g_hEMA2_M = INVALID_HANDLE, g_hEMA2_S = INVALID_HANDLE;
 int g_hADX2 = INVALID_HANDLE, g_hBB2 = INVALID_HANDLE;
+
+#endif // _GLOBALS_MQH_

@@ -182,6 +182,24 @@ class TradeAnalyzerV2:
                         seq['volSell'] += volume
                     seq['open_positions'].append({'vol': volume, 'price': deal_price, 'type': type_str, 'order': order_id})
                     
+                    # Check related logs for Initial Harvest events
+                    for log in related_logs:
+                        if "[TRIM] Initial Harvest Triggered" in log:
+                            match_h = re.search(r'Harvest \(.*%\): ([\d\.]+)', log)
+                            if match_h:
+                                h_amt = float(match_h.group(1))
+                                seq['harvestedProfit'] = h_amt
+                                self.profit_tally += h_amt
+                                reasoning = "Initial Harvest Triggered"
+                                calc_details = f"Harvested: {h_amt}"
+                        if "[TRIM] Symmetrical Trim" in log:
+                            match_c = re.search(r'Cost: ([\d\.]+)', log)
+                            if match_c:
+                                cost = float(match_c.group(1))
+                                self.profit_tally -= cost
+                                reasoning = "Symmetrical Trim Cost Subtracted"
+                                calc_details = f"Cost: {cost}"
+                    
                     if "[HEDGE]" in comment:
                         seq['state'] = 'LOCKED'
                         # Calculate MidPrice when locked
@@ -224,41 +242,30 @@ class TradeAnalyzerV2:
                         else:
                             i += 1
                     
+                    # PRD 5.1: Real-time Profit Recon (Match EA Logic)
+                    keep_percent = float(self.inputs.get('KeepProfitPercent', 50.0))
+                    amount_to_add = 0.0
+                    
                     if net_deal_profit > 0:
-                        self.profit_tally += net_deal_profit
+                        if "[TRIM]" in comment:
+                            amount_to_add = net_deal_profit * (keep_percent / 100.0)
+                            reasoning = "Symmetrical Trim Win"
+                        elif "sl" in comment or "Trailing" in comment:
+                            reasoning = "Active Trade Exit (SL)"
+                            # Find previously harvested amount
+                            prev_harvest = seq.get('harvestedProfit', 0.0)
+                            delta = net_deal_profit - prev_harvest
+                            if delta > 0:
+                                amount_to_add = delta * (keep_percent / 100.0)
+                                reasoning += f" | +{round(amount_to_add, 2)} Harvest"
                     
-                    if "[TRIM]" in comment:
-                        reasoning = "Symmetrical Trim"
-                        # Validation: Check if it was indeed the farthest MidPrice
-                        current_mprice = deal_price # Approximated
-                        # Note: True farthest check requires knowing prices of ALL segments at this time.
-                        # We can check among our tracked sequences.
-                        max_dist = -1
-                        farthest_m = None
-                        for m, data in self.sequences.items():
-                            if data['state'] == 'LOCKED' and (data['volBuy'] > 0 or data['volSell'] > 0):
-                                dist = abs(data['midPrice'] - current_mprice)
-                                if dist > max_dist:
-                                    max_dist = dist
-                                    farthest_m = m
-                        
-                        if farthest_m and farthest_m != magic:
-                            # It's possible multiple are close, but if significantly different, flag it.
-                            # For now, just log the comparison.
-                            calc_details = f"Trimmed M:{magic} (Dist: {round(abs(seq['midPrice']-current_mprice), 5)}). Farthest seen: M:{farthest_m} (Dist: {round(max_dist, 5)})"
-                        
-                        # Validate symmetry: MT5 deals for trims come in pairs usually.
-                        # We'll see if volBuy and volSell remain balanced.
-                        if abs(seq['volBuy'] - seq['volSell']) > 0.001:
-                            status = "WARNING"
-                            reasoning += " | Asymmetry Detected"
+                    if amount_to_add > 0:
+                        self.profit_tally += amount_to_add
                     
-                    elif "sl" in comment or "Trailing" in comment:
-                        reasoning = "Active Trade Exit (SL)"
-                        if seq['volBuy'] <= 0.0001 and seq['volSell'] <= 0.0001:
-                            seq['state'] = 'CLOSED'
-                            if self.active_magic == magic:
-                                self.active_magic = None
+                    if seq['volBuy'] <= 0.0001 and seq['volSell'] <= 0.0001:
+                        seq['state'] = 'CLOSED'
+                        if self.active_magic == magic:
+                            self.active_magic = None
             
             # --- General Rule Checks ---
             if "[SIGNAL]" in comment and direction == 'in':
@@ -268,9 +275,19 @@ class TradeAnalyzerV2:
                     calc_details = f"Expected {lot_size}, got {volume}"
 
             # --- Result Construction ---
+            active_str = str(self.active_magic) if self.active_magic else ""
+            
+            locked_pairs = []
+            for m, s in self.sequences.items():
+                if s['state'] == 'LOCKED':
+                    vol = max(s['volBuy'], s['volSell'])
+                    locked_pairs.append(f"({m},{m}:{vol:.2f})")
+            locked_str = ", ".join(locked_pairs)
+
             analysis = {
                 **deal,
-                'Magic': magic,
+                'ACTIVE': active_str,
+                'LOCKED': locked_str,
                 'Seq_State': self.sequences[magic]['state'] if magic in self.sequences else "N/A",
                 'Seq_MidPrice': round(self.sequences[magic]['midPrice'], 5) if magic in self.sequences else 0,
                 'Profit_Tally': round(self.profit_tally, 2),
@@ -287,12 +304,19 @@ class TradeAnalyzerV2:
             return
         keys = data[0].keys()
         os.makedirs(os.path.dirname(filename), exist_ok=True)
-        with open(filename, 'w', newline='', encoding='utf-8') as f:
-            dict_writer = csv.DictWriter(f, fieldnames=keys)
-            dict_writer.writeheader()
-            dict_writer.writerows(data)
-        print(f"Saved analysis to {filename}")
         
+        while True:
+            try:
+                with open(filename, 'w', newline='', encoding='utf-8') as f:
+                    dict_writer = csv.DictWriter(f, fieldnames=keys)
+                    dict_writer.writeheader()
+                    dict_writer.writerows(data)
+                print(f"Saved analysis to {filename}")
+                break
+            except PermissionError:
+                print(f"\n[!] ERROR: Could not save to {filename}. The file is likely open in another program (e.g., Excel).")
+                input("Please close the file and press Enter to retry, or Ctrl+C to cancel...")
+
         try:
             print(f"Opening {filename}...")
             os.startfile(os.path.abspath(filename))
@@ -300,7 +324,7 @@ class TradeAnalyzerV2:
             print(f"Could not open file: {e}")
 
 if __name__ == "__main__":
-    analyzer = TradeAnalyzerV2()
+    analyzer = TradeAnalyzerV2(test_dir=r"d:\Trading\PowerHedger\test")
     if analyzer.find_latest_files():
         if analyzer.parse_html() and analyzer.parse_logs():
             results = analyzer.analyze()

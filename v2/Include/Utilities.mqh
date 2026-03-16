@@ -1,3 +1,6 @@
+#ifndef _UTILITIES_MQH_
+#define _UTILITIES_MQH_
+
 //+------------------------------------------------------------------+
 //|                                                    Utilities.mqh |
 //|                                  Copyright 2026, Souvik Chanda  |
@@ -29,7 +32,12 @@ void CalculateBalances()
 {
    g_totalBuyLots = 0;
    g_totalSellLots = 0;
-   ArrayResize(g_sequences, 0);
+   
+   // Reset volumes but keep the sequence objects to preserve harvestedProfit
+   for(int i=0; i<ArraySize(g_sequences); i++) {
+      g_sequences[i].volBuy = 0;
+      g_sequences[i].volSell = 0;
+   }
    
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
@@ -57,14 +65,26 @@ void CalculateBalances()
             seqIdx = ArraySize(g_sequences);
             ArrayResize(g_sequences, seqIdx + 1);
             g_sequences[seqIdx].magic = magic;
-            g_sequences[seqIdx].volBuy = 0; g_sequences[seqIdx].volSell = 0; g_sequences[seqIdx].midPrice = 0; g_sequences[seqIdx].state = SEQ_ACTIVE;
+            g_sequences[seqIdx].volBuy = 0; 
+            g_sequences[seqIdx].volSell = 0; 
+            g_sequences[seqIdx].midPrice = 0; 
+            g_sequences[seqIdx].state = SEQ_ACTIVE;
+            g_sequences[seqIdx].harvestedProfit = 0;
          }
          if(m_position.PositionType() == POSITION_TYPE_BUY) g_sequences[seqIdx].volBuy += vol;
          else g_sequences[seqIdx].volSell += vol;
       }
    }
    
-   for(int i=0; i<ArraySize(g_sequences); i++) {
+   // Cleanup empty sequences (where both legs are 0) and update states
+   for(int i = ArraySize(g_sequences) - 1; i >= 0; i--) {
+      if(g_sequences[i].volBuy <= 0 && g_sequences[i].volSell <= 0) {
+         // Sequence closed, remove it
+         for(int k=i; k<ArraySize(g_sequences)-1; k++) g_sequences[k] = g_sequences[k+1];
+         ArrayResize(g_sequences, ArraySize(g_sequences) - 1);
+         continue;
+      }
+
       double entryB = 0, entryS = 0;
       int countB = 0, countS = 0;
       for(int j=PositionsTotal()-1; j>=0; j--) {
@@ -88,6 +108,15 @@ void CalculateBalances()
 bool IsActiveTradePresent()
 {
    for(int i=0; i<ArraySize(g_sequences); i++) { if(g_sequences[i].state == SEQ_ACTIVE) return true; }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Check if ANY sequence is in LOCKED state                 |
+//+------------------------------------------------------------------+
+bool HasLockedSequences()
+{
+   for(int i=0; i<ArraySize(g_sequences); i++) { if(g_sequences[i].state == SEQ_LOCKED) return true; }
    return false;
 }
 
@@ -188,3 +217,5 @@ int GetStrategySignal(int sNum) {
 }
 
 int GetRandomSignal() { return (MathRand()%2==0)?1:-1; }
+
+#endif // _UTILITIES_MQH_

@@ -1,6 +1,14 @@
 @echo off
 setlocal enabledelayedexpansion
 
+:: Get version from argument
+set VERSION=%~1
+if "%VERSION%"=="" (
+    echo Error: No version specified.
+    echo Usage: loggen.bat [version] ^(e.g., loggen.bat v1^)
+    exit /b 1
+)
+
 :: Source and Destination paths
 set SRC_DIR="C:\Users\souvi\AppData\Roaming\MetaQuotes\Terminal\6C3C6A11D1C3791DD4DBF45421BF8028\Tester\Logs"
 set DEST_DIR="d:\Trading\PowerHedger\test"
@@ -22,7 +30,6 @@ if not "!LATEST_LOG!"=="" (
     :: Ensure destination exists
     if not exist %DEST_DIR% mkdir %DEST_DIR%
     
-    :: powershell -Command "Get-Content -Path '%SRC_DIR%\!LATEST_LOG!' -Encoding Unicode | Set-Content -Path '%DEST_DIR%\!LATEST_LOG!' -Encoding UTF8"
     powershell -Command "Get-Content -Path '%SRC_DIR%\!LATEST_LOG!' -Encoding Unicode | Out-File -FilePath '%DEST_DIR%\!LATEST_LOG!' -Encoding utf8"
 ) else (
     echo Error: No log files found in the source directory.
@@ -33,6 +40,18 @@ echo Converting HTML reports in %DEST_DIR% to UTF-8...
 for %%f in ("%DEST_DIR%\ReportTester-*.html") do (
     echo Converting %%~nxf...
     powershell -Command "(Get-Content -Path '%%f' -Encoding Unicode) | Out-File -FilePath '%%f' -Encoding utf8"
+)
+
+:: Call analyzelogs.py
+if not "!LATEST_LOG!"=="" (
+    if exist "%VERSION%\analyzelogs.py" (
+        echo.
+        echo Running analysis for %VERSION%...
+        python "%VERSION%\analyzelogs.py" "%DEST_DIR%\!LATEST_LOG!"
+    ) else (
+        echo.
+        echo Warning: %VERSION%\analyzelogs.py not found.
+    )
 )
 
 echo.

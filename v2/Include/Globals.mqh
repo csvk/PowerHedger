@@ -25,6 +25,7 @@ CSymbolInfo    m_symbol;         // Symbol properties (Bid, Ask, TickValue) clas
 double   g_totalBuyLots  = 0;    // Sum of volume for all open Buy positions
 double   g_totalSellLots = 0;    // Sum of volume for all open Sell positions
 double   g_profitTally   = 0;    // Persistent bucket for fractional profit left after trimming (PRD 5.2)
+double   g_unharvestedProfit = 0;// Persistent bucket for profit not used for trim
 int      g_nextSequenceID = 1;   // Persistent ID for new sequences (PRD 3.1)
 bool     g_isStateDirty  = false; // Dirty flag to consolidate redundant SaveState calls
 datetime g_lastTrimTime  = 0;     // Timestamp of last trim to prevent double-triggering
@@ -36,7 +37,6 @@ struct SequenceInfo {
    ENUM_SEQUENCE_STATE state; // ACTIVE or LOCKED
    double volBuy;             // Current open buy volume
    double volSell;            // Current open sell volume
-   double harvestedProfit;    // Amount already used for trimming/tally from this active trade
 };
 SequenceInfo g_sequences[];   // Dynamic array of all managed sequences
 

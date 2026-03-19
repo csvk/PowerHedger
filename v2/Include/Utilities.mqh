@@ -33,7 +33,7 @@ void CalculateBalances()
    g_totalBuyLots = 0;
    g_totalSellLots = 0;
    
-   // Reset volumes but keep the sequence objects to preserve harvestedProfit
+   // Reset volumes but keep the sequence objects to preserve state
    for(int i=0; i<ArraySize(g_sequences); i++) {
       g_sequences[i].volBuy = 0;
       g_sequences[i].volSell = 0;
@@ -69,7 +69,6 @@ void CalculateBalances()
             g_sequences[seqIdx].volSell = 0; 
             g_sequences[seqIdx].midPrice = 0; 
             g_sequences[seqIdx].state = SEQ_ACTIVE;
-            g_sequences[seqIdx].harvestedProfit = 0;
          }
          if(m_position.PositionType() == POSITION_TYPE_BUY) g_sequences[seqIdx].volBuy += vol;
          else g_sequences[seqIdx].volSell += vol;

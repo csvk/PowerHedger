@@ -40,13 +40,14 @@ void SaveState()
    if(file.Open(g_fileName, flags)) {
       string content = "{";
       content += StringFormat("\"Tally\":%.2f,", g_profitTally);
+      content += StringFormat("\"Unharvested\":%.2f,", g_unharvestedProfit);
       content += StringFormat("\"NextID\":%d,", g_nextSequenceID);
       content += StringFormat("\"LastDeal\":%I64u,", g_lastProcessedDeal);
       
       content += "\"Sequences\":[";
       for(int i=0; i<ArraySize(g_sequences); i++) {
-         content += StringFormat("{\"m\":%I64d,\"s\":%d,\"h\":%.2f}", 
-                                 g_sequences[i].magic, (int)g_sequences[i].state, g_sequences[i].harvestedProfit);
+         content += StringFormat("{\"m\":%I64d,\"s\":%d}", 
+                                 g_sequences[i].magic, (int)g_sequences[i].state);
          if(i < ArraySize(g_sequences)-1) content += ",";
       }
       content += "],";
@@ -81,8 +82,8 @@ void SaveStateIfNeeded()
       for(int i=0; i<ArraySize(g_sequences); i++) {
          seqList += IntegerToString(g_sequences[i].magic) + (i < ArraySize(g_sequences)-1 ? ", " : "");
       }
-      PrintFormat("[INFO] State saved to %s (Tally: %.2f, NextID: %d, Seqs: %d [%s])", 
-                  g_fileName, g_profitTally, g_nextSequenceID, ArraySize(g_sequences), seqList);
+      PrintFormat("[INFO] State saved to %s (Tally: %.2f, Unharvested: %.2f, NextID: %d, Seqs: %d [%s])", 
+                  g_fileName, g_profitTally, g_unharvestedProfit, g_nextSequenceID, ArraySize(g_sequences), seqList);
    }
 }
 
@@ -102,10 +103,12 @@ void LoadState()
       
       //--- Parse primitive keys
       int pTally = StringFind(content, "\"Tally\":");
+      int pUnharvested = StringFind(content, "\"Unharvested\":");
       int pNext  = StringFind(content, "\"NextID\":");
       int pDeal  = StringFind(content, "\"LastDeal\":");
       
       if(pTally >= 0) g_profitTally = StringToDouble(StringSubstr(content, pTally + 8));
+      if(pUnharvested >= 0) g_unharvestedProfit = StringToDouble(StringSubstr(content, pUnharvested + 14));
       if(pNext  >= 0) g_nextSequenceID = (int)StringToInteger(StringSubstr(content, pNext + 9));
       if(pDeal  >= 0) g_lastProcessedDeal = (ulong)StringToInteger(StringSubstr(content, pDeal + 11));
       
@@ -121,25 +124,20 @@ void LoadState()
             for(int i=0; i<count; i++) {
                int pm = StringFind(items[i], "\"m\":");
                int ps = StringFind(items[i], "\"s\":");
-               int ph = StringFind(items[i], "\"h\":");
-               if(pm >= 0 && ps >= 0 && ph >= 0) {
+               if(pm >= 0 && ps >= 0) {
                   int size = ArraySize(g_sequences);
                   ArrayResize(g_sequences, size + 1);
                   string mVal = StringSubstr(items[i], pm + 4);
                   string sVal = StringSubstr(items[i], ps + 4);
-                  string hVal = StringSubstr(items[i], ph + 4);
                   
                   int mEnd = StringFind(mVal, ","); if(mEnd < 0) mEnd = StringFind(mVal, "\"");
                   int sEnd = StringFind(sVal, ","); if(sEnd < 0) sEnd = StringFind(sVal, "\"");
-                  int hEnd = StringFind(hVal, ","); if(hEnd < 0) hEnd = StringFind(hVal, "\"");
                   
                   if(mEnd > 0) mVal = StringSubstr(mVal, 0, mEnd);
                   if(sEnd > 0) sVal = StringSubstr(sVal, 0, sEnd);
-                  if(hEnd > 0) hVal = StringSubstr(hVal, 0, hEnd);
                   
                   g_sequences[size].magic = StringToInteger(mVal);
                   g_sequences[size].state = (ENUM_SEQUENCE_STATE)StringToInteger(sVal);
-                  g_sequences[size].harvestedProfit = StringToDouble(hVal);
                   // Other fields will be populated by CalculateBalances in the first tick
                   g_sequences[size].volBuy = 0;
                   g_sequences[size].volSell = 0;
@@ -183,8 +181,8 @@ void LoadState()
       for(int i=0; i<ArraySize(g_sequences); i++) {
          seqList += IntegerToString(g_sequences[i].magic) + (i < ArraySize(g_sequences)-1 ? ", " : "");
       }
-      PrintFormat("[INFO] State loaded from %s (Tally: %.2f, NextID: %d, Seqs: %d [%s], Maps: %d)", 
-                  g_fileName, g_profitTally, g_nextSequenceID, ArraySize(g_sequences), seqList, ArraySize(g_manualMaps));
+      PrintFormat("[INFO] State loaded from %s (Tally: %.2f, Unharvested: %.2f, NextID: %d, Seqs: %d [%s], Maps: %d)", 
+                  g_fileName, g_profitTally, g_unharvestedProfit, g_nextSequenceID, ArraySize(g_sequences), seqList, ArraySize(g_manualMaps));
    }
 }
 

@@ -2,6 +2,7 @@ import os
 import re
 import csv
 import glob
+import sys
 from datetime import datetime
 
 class TradeAnalyzerV2:
@@ -15,21 +16,30 @@ class TradeAnalyzerV2:
         
         # State Tracking
         self.sequences = {} # {magic: {state, midPrice, volBuy, volSell, open_positions}}
-        self.profit_tally = 0.0
         self.active_magic = None
+        self.last_tally = 0.0
+        self.last_unharvested = 0.0
+        self.initial_balance = None
         
-    def find_latest_files(self):
+        self.bal_x = 0.0
+        self.bal_y = 0.0
+        self.bal_z = 0.0
+        
+    def find_latest_files(self, provided_log=None):
         reports = glob.glob(os.path.join(self.test_dir, "ReportTester-*.html"))
         if not reports:
             print(f"No HTML report found in {self.test_dir} folder.")
             return False
         self.report_file = max(reports, key=os.path.getmtime)
         
-        logs = glob.glob(os.path.join(self.test_dir, "*.log"))
-        if not logs:
-            print(f"No log file found in {self.test_dir} folder.")
-            return False
-        self.log_file = max(logs, key=os.path.getmtime)
+        if provided_log and os.path.exists(provided_log):
+            self.log_file = provided_log
+        else:
+            logs = glob.glob(os.path.join(self.test_dir, "*.log"))
+            if not logs:
+                print(f"No log file found in {self.test_dir} folder.")
+                return False
+            self.log_file = max(logs, key=os.path.getmtime)
         
         print(f"Found Report: {self.report_file}")
         print(f"Found Log: {self.log_file}")
@@ -153,8 +163,12 @@ class TradeAnalyzerV2:
             deal_profit = float(deal['Profit'].replace(' ', '')) if deal['Profit'] else 0.0
             deal_comm = float(deal['Commission'].replace(' ', '')) if deal['Commission'] else 0.0
             deal_swap = float(deal['Swap'].replace(' ', '')) if deal['Swap'] else 0.0
+            deal_balance = float(deal['Balance'].replace(' ', '')) if deal['Balance'] else 0.0
             net_deal_profit = deal_profit + deal_comm + deal_swap
             
+            if self.initial_balance is None or deal['Deal'] == '1':
+                self.initial_balance = deal_balance
+                
             magic = self.get_magic_from_comment(comment)
             related_logs = [self.clean_log(l) for l in self.log_index.get(time_str, [])]
             
@@ -162,9 +176,26 @@ class TradeAnalyzerV2:
             reasoning = "N/A"
             calc_details = ""
             
+            for log in related_logs:
+                m_state = re.search(r'Tally:\s*([-\d\.]+),\s*Unharvested:\s*([-\d\.]+)', log)
+                if m_state:
+                    self.last_tally = float(m_state.group(1))
+                    self.last_unharvested = float(m_state.group(2))
+            
             # --- State Update Logic ---
-            if magic is not None:
-                if magic not in self.sequences:
+            inferred_magic = magic
+            if inferred_magic is None and type_str in ('buy', 'sell') and direction == 'out':
+                # MT5 overwrites comment with 'sl' so magic number is lost. Infer from active trade.
+                inferred_magic = self.active_magic
+                # If there are multiple open, infer from type matching
+                if not inferred_magic:
+                    for m, s in self.sequences.items():
+                        if s['state'] in ('ACTIVE', 'LOCKED') and ((type_str == 'sell' and s['volBuy'] > 0) or (type_str == 'buy' and s['volSell'] > 0)):
+                            inferred_magic = m
+                            break
+
+            if inferred_magic is not None:
+                if inferred_magic not in self.sequences:
                     self.sequences[magic] = {
                         'state': 'ACTIVE',
                         'midPrice': 0.0,
@@ -173,7 +204,7 @@ class TradeAnalyzerV2:
                         'open_positions': []
                     }
                 
-                seq = self.sequences[magic]
+                seq = self.sequences[inferred_magic]
                 
                 if direction == 'in':
                     if type_str == 'buy':
@@ -189,15 +220,13 @@ class TradeAnalyzerV2:
                             if match_h:
                                 h_amt = float(match_h.group(1))
                                 seq['harvestedProfit'] = h_amt
-                                self.profit_tally += h_amt
                                 reasoning = "Initial Harvest Triggered"
                                 calc_details = f"Harvested: {h_amt}"
                         if "[TRIM] Symmetrical Trim" in log:
                             match_c = re.search(r'Cost: ([\d\.]+)', log)
                             if match_c:
                                 cost = float(match_c.group(1))
-                                self.profit_tally -= cost
-                                reasoning = "Symmetrical Trim Cost Subtracted"
+                                reasoning = "Symmetrical Trim Cost Checked"
                                 calc_details = f"Cost: {cost}"
                     
                     if "[HEDGE]" in comment:
@@ -210,14 +239,14 @@ class TradeAnalyzerV2:
                         calc_details = f"MidPrice: {round(seq['midPrice'], 5)}"
                     else:
                         # Signal Entry
-                        if self.active_magic and self.active_magic != magic:
+                        if self.active_magic and self.active_magic != inferred_magic:
                             # Check if previous active magic is actually gone or still active
                             if self.sequences[self.active_magic]['state'] == 'ACTIVE':
                                 status = "FAIL"
                                 reasoning = "One-Active-Trade Rule Violation"
-                                calc_details = f"New Magic {magic} entered while {self.active_magic} is still ACTIVE"
-                        self.active_magic = magic
-                        reasoning = f"Signal Entry (Magic {magic})"
+                                calc_details = f"New Magic {inferred_magic} entered while {self.active_magic} is still ACTIVE"
+                        self.active_magic = inferred_magic
+                        reasoning = f"Signal Entry (Magic {inferred_magic})"
                 
                 elif direction == 'out':
                     # Direction 'out' closes positions
@@ -246,25 +275,37 @@ class TradeAnalyzerV2:
                     keep_percent = float(self.inputs.get('KeepProfitPercent', 50.0))
                     amount_to_add = 0.0
                     
+                    locked_exists = any(s['state'] == 'LOCKED' for s in self.sequences.values())
+                    
                     if net_deal_profit > 0:
                         if "[TRIM]" in comment:
                             amount_to_add = net_deal_profit * (keep_percent / 100.0)
                             reasoning = "Symmetrical Trim Win"
+                            self.bal_z = deal_balance
                         elif "sl" in comment or "Trailing" in comment:
+                            self.bal_x = deal_balance - net_deal_profit
+                            self.bal_y = deal_balance
+                            
                             reasoning = "Active Trade Exit (SL)"
-                            # Find previously harvested amount
-                            prev_harvest = seq.get('harvestedProfit', 0.0)
-                            delta = net_deal_profit - prev_harvest
-                            if delta > 0:
-                                amount_to_add = delta * (keep_percent / 100.0)
-                                reasoning += f" | +{round(amount_to_add, 2)} Harvest"
+                            if locked_exists:
+                                # Find previously harvested amount
+                                prev_harvest = seq.get('harvestedProfit', 0.0)
+                                delta = net_deal_profit - prev_harvest
+                                if delta > 0:
+                                    amount_to_add = delta * (keep_percent / 100.0)
+                                    reasoning += f" | +{round(amount_to_add, 2)} Harvest"
+                            else:
+                                reasoning += " | No Locked, No Harvest"
+                    elif net_deal_profit < 0:
+                        if "[TRIM]" in comment:
+                            reasoning = "Symmetrical Trim Loss"
+                            self.bal_z = deal_balance
                     
-                    if amount_to_add > 0:
-                        self.profit_tally += amount_to_add
+                    # Removed self.profit_tally increment
                     
                     if seq['volBuy'] <= 0.0001 and seq['volSell'] <= 0.0001:
                         seq['state'] = 'CLOSED'
-                        if self.active_magic == magic:
+                        if self.active_magic == inferred_magic:
                             self.active_magic = None
             
             # --- General Rule Checks ---
@@ -284,48 +325,68 @@ class TradeAnalyzerV2:
                     locked_pairs.append(f"({m},{m}:{vol:.2f})")
             locked_str = ", ".join(locked_pairs)
 
+            calc_cum_profit = round(deal_balance - self.initial_balance, 2) if self.initial_balance else 0.0
+            ea_cum_profit = round(self.last_tally + self.last_unharvested, 2)
+            check_diff = round(calc_cum_profit - ea_cum_profit, 2)
+            
+            bal_check = ""
+            if "[TRIM]" in comment and self.bal_x and self.bal_y:
+                z_check = "PASS" if self.bal_z > self.bal_x else "FAIL"
+                bal_check = f"x={self.bal_x:.2f}, y={self.bal_y:.2f}, z={self.bal_z:.2f} (z>x:{z_check})"
+
             analysis = {
-                **deal,
+                'Time': deal['Time'],
+                'Symbol': deal['Symbol'],
+                'Type': deal['Type'],
+                'Direction': deal['Direction'],
+                'Volume': deal['Volume'],
+                'Price': deal['Price'],
+                'Profit': net_deal_profit,
+                'Balance': deal['Balance'],
+                'Comment': deal['Comment'],
                 'ACTIVE': active_str,
                 'LOCKED': locked_str,
-                'Seq_State': self.sequences[magic]['state'] if magic in self.sequences else "N/A",
-                'Seq_MidPrice': round(self.sequences[magic]['midPrice'], 5) if magic in self.sequences else 0,
-                'Profit_Tally': round(self.profit_tally, 2),
+                'Seq_State': self.sequences[inferred_magic]['state'] if inferred_magic in self.sequences else "N/A",
+                'Seq_MidPrice': round(self.sequences[inferred_magic]['midPrice'], 5) if inferred_magic in self.sequences else 0,
+                'Tally': self.last_tally,
+                'Unharvested': self.last_unharvested,
+                'EA_Cum_Profit': ea_cum_profit,
+                'Bal_Check': bal_check,
                 'Test_Status': status,
-                'Reasoning': reasoning,
-                'Details': calc_details
+                'Reasoning': reasoning
             }
             output_data.append(analysis)
 
         return output_data
 
-    def save_csv(self, data, filename="test/v2_trade_analysis.csv"):
+    def save_csv(self, data, filename="v2_trade_analysis.csv"):
         if not data:
             return
         keys = data[0].keys()
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        out_path = os.path.join(self.test_dir, filename)
         
         while True:
             try:
-                with open(filename, 'w', newline='', encoding='utf-8') as f:
+                with open(out_path, 'w', newline='', encoding='utf-8') as f:
                     dict_writer = csv.DictWriter(f, fieldnames=keys)
                     dict_writer.writeheader()
                     dict_writer.writerows(data)
-                print(f"Saved analysis to {filename}")
+                print(f"Saved analysis to {out_path}")
                 break
             except PermissionError:
-                print(f"\n[!] ERROR: Could not save to {filename}. The file is likely open in another program (e.g., Excel).")
+                print(f"\n[!] ERROR: Could not save to {out_path}. The file is likely open in another program (e.g., Excel).")
                 input("Please close the file and press Enter to retry, or Ctrl+C to cancel...")
 
         try:
-            print(f"Opening {filename}...")
-            os.startfile(os.path.abspath(filename))
+            print(f"Opening {out_path}...")
+            os.startfile(out_path)
         except Exception as e:
             print(f"Could not open file: {e}")
 
 if __name__ == "__main__":
+    provided_log = sys.argv[1] if len(sys.argv) > 1 else None
     analyzer = TradeAnalyzerV2(test_dir=r"d:\Trading\PowerHedger\test")
-    if analyzer.find_latest_files():
+    if analyzer.find_latest_files(provided_log):
         if analyzer.parse_html() and analyzer.parse_logs():
             results = analyzer.analyze()
             analyzer.save_csv(results)

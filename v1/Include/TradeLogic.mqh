@@ -689,3 +689,20 @@ void CheckHedgeTriggers()
       }
    }
 }
+          PrintFormat("[HEDGE] Standard Hedge Triggered (SELL, Vol: %.2f): Price %.5f reached trigger %.5f (Lowest Buy: %.5f, HedgePips: %.1f)", 
+                      g_totalBuyLots - g_totalSellLots, m_symbol.Bid(), trigger, limit, HedgePips);
+         ExecuteHedgeOrReduce(POSITION_TYPE_SELL, g_totalBuyLots - g_totalSellLots);
+      }
+   } else {
+      //--- Find the HIGHEST Sell (nearest to current price in uptrend)
+      for(int i = PositionsTotal() - 1; i >= 0; i--) if(m_position.SelectByIndex(i) && m_position.Magic() == MagicNumber && m_position.Symbol() == _Symbol && m_position.PositionType() == POSITION_TYPE_SELL) if(limit == -1 || m_position.PriceOpen() > limit) limit = m_position.PriceOpen();
+      
+      //--- Trigger BUY hedge if price rises by HedgePips from highest Sell
+      double trigger = limit + HedgePips * m_symbol.Point() * 10;
+      if(limit != -1 && m_symbol.Ask() >= trigger) {
+          PrintFormat("[HEDGE] Standard Hedge Triggered (BUY, Vol: %.2f): Price %.5f reached trigger %.5f (Highest Sell: %.5f, HedgePips: %.1f)", 
+                      g_totalSellLots - g_totalBuyLots, m_symbol.Ask(), trigger, limit, HedgePips);
+         ExecuteHedgeOrReduce(POSITION_TYPE_BUY, g_totalSellLots - g_totalBuyLots);
+      }
+   }
+}

@@ -201,11 +201,13 @@ void PerformSymmetricalTrimming()
    double avgB = entryB / volB;
    double avgS = entryS / volS;
    
-   // PRD 5.2: Cost calculation considering only loss-making side(s)
-   double buyLossPL = (m_symbol.Bid() < avgB) ? (avgB - m_symbol.Bid()) / m_symbol.Point() * m_symbol.TickValue() : 0;
-   double sellLossPL = (m_symbol.Ask() > avgS) ? (m_symbol.Ask() - avgS) / m_symbol.Point() * m_symbol.TickValue() : 0;
-   double costPerLot = buyLossPL + sellLossPL;
-   if(costPerLot <= 0) costPerLot = 0.000001;
+   // PRD 5.2: Cost calculation considering combined net PnL (distance-neutral)
+   double buyPnLPerLot = (m_symbol.Bid() - avgB) / m_symbol.Point() * m_symbol.TickValue();
+   double sellPnLPerLot = (avgS - m_symbol.Ask()) / m_symbol.Point() * m_symbol.TickValue();
+   double combinedPnLPerLot = buyPnLPerLot + sellPnLPerLot;
+
+   double costPerLot = (combinedPnLPerLot < 0) ? MathAbs(combinedPnLPerLot) : 0;
+   if(costPerLot <= 0) costPerLot = 0.000001; // Fallback to avoid division by zero
    
    double lotsToClose = usableProfit / costPerLot;
    lotsToClose = MathMin(lotsToClose, MathMin(volB, volS));
@@ -215,7 +217,8 @@ void PerformSymmetricalTrimming()
       double cost = lotsToClose * costPerLot;
       PrintFormat("[TRIM] Symmetrical Trim: Magic %I64d, Lots: %.2f, Cost: %.2f", seq.magic, lotsToClose, cost);
       
-      string comment = StringFormat("[%I64d] [TRIM] Reduced", seq.magic);
+      string commentBuy = StringFormat("[%I64d] [TRIM] P:%.2f", seq.magic, -(buyPnLPerLot * lotsToClose));
+      string commentSell = StringFormat("[%I64d] [TRIM] P:%.2f", seq.magic, -(sellPnLPerLot * lotsToClose));
       
       // Close Buy Leg
       for(int j=PositionsTotal()-1; j>=0; j--) {
@@ -223,7 +226,7 @@ void PerformSymmetricalTrimming()
              long magic = m_position.Magic();
              if(magic == 0) { for(int k=0; k<ArraySize(g_manualMaps); k++) if(m_position.Ticket()==g_manualMaps[k].ticket) { magic=g_manualMaps[k].assignedMagic; break; } }
              if(magic == seq.magic && m_position.PositionType() == POSITION_TYPE_BUY) {
-                 CloseWithComment(m_position.Ticket(), lotsToClose, comment, magic);
+                 CloseWithComment(m_position.Ticket(), lotsToClose, commentBuy, magic);
                  break;
              }
          }
@@ -234,7 +237,7 @@ void PerformSymmetricalTrimming()
              long magic = m_position.Magic();
              if(magic == 0) { for(int k=0; k<ArraySize(g_manualMaps); k++) if(m_position.Ticket()==g_manualMaps[k].ticket) { magic=g_manualMaps[k].assignedMagic; break; } }
              if(magic == seq.magic && m_position.PositionType() == POSITION_TYPE_SELL) {
-                 CloseWithComment(m_position.Ticket(), lotsToClose, comment, magic);
+                 CloseWithComment(m_position.Ticket(), lotsToClose, commentSell, magic);
                  break;
              }
          }
@@ -303,40 +306,14 @@ void ManageTrailingSL()
             bool better = (m_position.PositionType() == POSITION_TYPE_BUY) ? (newSL > currentSL || currentSL == 0) : (newSL < currentSL || currentSL == 0);
             if(!better) continue;
 
-            // Prepare Initial Harvest calculation
-            int seqIdx = -1;
-            for(int k=0; k<ArraySize(g_sequences); k++) {
-               if(g_sequences[k].magic == magic) { seqIdx = k; break; }
-            }
-
-            double harvestAmount = 0;
-            if(seqIdx != -1 && g_sequences[seqIdx].harvestedProfit == 0 && HasLockedSequences()) {
-               double volume = m_position.Volume();
-               double securedPips = MathAbs(newSL - m_position.PriceOpen()) / (m_symbol.Point() * 10);
-               double securedProfit = securedPips * volume * 10.0 * m_symbol.TickValue(); // Approx math
-               
-               harvestAmount = securedProfit * (KeepProfitPercent / 100.0);
-            }
-
             ulong ticket = m_position.Ticket();
             if(m_trade.PositionModify(ticket, newSL, 0)) {
                if(currentSL == 0) {
                   PrintFormat("[TRADE] Profit Locked: Ticket %I64u SL set at %.5f (Pips: %.1f, TrailPips: %.1f)", 
                               ticket, newSL, pips, TrailingStopPips);
                } else {
-                  PrintFormat("[TRADE] Trailing Stop updated: Ticket %I64u SL moved from %.5f to %.5f (Reason: Price advancement, Pips: %.1f, TrailPips: %.1f)", 
-                              ticket, currentSL, newSL, pips, TrailingStopPips);
-               }
-
-               // Apply Harvest ONLY after successful SL modification
-               if(harvestAmount > 0 && seqIdx != -1) {
-                  g_profitTally += harvestAmount; // Update Tally FIRST as requested
-                  TriggerSave();
-                  SaveStateIfNeeded(); // Persist harvest immediately
-                  PrintFormat("[TRIM] Harvest Added to Tally: Magic %I64d, Amount: %.2f, New Tally: %.2f", 
-                              magic, harvestAmount, g_profitTally);
-                  g_sequences[seqIdx].harvestedProfit = harvestAmount;
-                  PerformSymmetricalTrimming();
+                  PrintFormat("[TRADE] Trailing Stop updated: %.5f -> %.5f (Ticket %I64u, Pips: %.1f, TrailPips: %.1f)", 
+                              currentSL, newSL, ticket, pips, TrailingStopPips);
                }
             }
          }
@@ -361,50 +338,30 @@ void ReconcileRecentDeals()
                double swap = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
                double net = profit + comm + swap;
                
-               if(net > 0) {
-                  string dealComment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
-                  long dealMagic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
-                  double amountToAdd = 0;
-                  
-                  // Case 1: Trim winning leg
-                  if(StringFind(dealComment, "[TRIM]") >= 0) {
+               string dealComment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
+               long dealMagic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+               double amountToAdd = 0;
+               // Booked Profit (At Close)
+               if(StringFind(dealComment, "[TRIM]") < 0 && HasLockedSequences()) {
+                  if(net > 0) {
                      amountToAdd = net * (KeepProfitPercent / 100.0);
-                     PrintFormat("[TRIM] Symmetrical Win Harvested: Magic %I64d, Profit: %.2f, Amount (%.0f%%): +%.2f", 
-                                 dealMagic, net, KeepProfitPercent, amountToAdd);
-                  } 
-                  // Case 2: Normal Active Trade closure
-                  else if(HasLockedSequences()) {
-                     double previouslyHarvested = 0;
-                     for(int k=0; k<ArraySize(g_sequences); k++) {
-                        if(g_sequences[k].magic == dealMagic) {
-                           previouslyHarvested = g_sequences[k].harvestedProfit;
-                           break;
-                        }
-                     }
-                     double delta = net - previouslyHarvested;
-                     if(delta > 0) {
-                        amountToAdd = delta * (KeepProfitPercent / 100.0);
-                        PrintFormat("[TRIM] Delta Profit Harvested: Magic %I64d, Net: %.2f, Delta: %.2f, Amount (%.0f%%): +%.2f", 
-                                    dealMagic, net, delta, KeepProfitPercent, amountToAdd);
-                     }
+                     double unharvestedAmount = net - amountToAdd;
+                     g_unharvestedProfit += unharvestedAmount;
+                     PrintFormat("[TRIM] Target Profit Harvested: Magic %I64d, Net: %.2f, Amount (%.0f%%): +%.2f, Unharvested Added: %.2f, Total Unharvested: %.2f", 
+                                 dealMagic, net, KeepProfitPercent, amountToAdd, unharvestedAmount, g_unharvestedProfit);
                   }
-                  
-                  if(amountToAdd > 0) {
-                     g_profitTally += amountToAdd;
-                     TriggerSave();
-                     SaveStateIfNeeded();
-                     if(StringFind(dealComment, "[TRIM]") < 0) PerformSymmetricalTrimming();
-                  }
+               } else if (StringFind(dealComment, "[TRIM]") >= 0) {
+                  // Deal generated by Symmetrical Trimming
+                  g_profitTally += net;
+                  PrintFormat("[TRIM] Realized PnL applied to Tally: Magic %I64d, DealNet: %.2f, New Tally: %.2f", dealMagic, net, g_profitTally);
+                  TriggerSave();
                }
                
-               // Separate Logic for Trim Deals: Subtract 100% of the loss
-               string cmt = HistoryDealGetString(dealTicket, DEAL_COMMENT);
-               if(StringFind(cmt, "[TRIM]") >= 0 && net < 0) {
-                  g_profitTally += net; // net is negative
-                  PrintFormat("[TRIM] Actual Gross Loss recorded: Magic %I64d, Loss: %.2f, New Tally: %.2f", 
-                              HistoryDealGetInteger(dealTicket, DEAL_MAGIC), net, g_profitTally);
+               if(amountToAdd > 0) {
+                  g_profitTally += amountToAdd;
                   TriggerSave();
                   SaveStateIfNeeded();
+                  PerformSymmetricalTrimming();
                }
             }
             g_lastProcessedDeal = dealTicket;

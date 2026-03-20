@@ -37,6 +37,7 @@ struct SequenceInfo {
    ENUM_SEQUENCE_STATE state; // ACTIVE or LOCKED
    double volBuy;             // Current open buy volume
    double volSell;            // Current open sell volume
+   double lastPyramidSL;      // SL price at the time of the last pyramid entry
 };
 SequenceInfo g_sequences[];   // Dynamic array of all managed sequences
 

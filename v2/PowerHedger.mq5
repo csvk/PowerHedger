@@ -80,6 +80,7 @@ void OnTick()
    // 4. Entry & Hedging
    CheckNewEntries();
    ManageLockedSequences();
+   ManagePyramiding();
    
    // 5. Active Trade Management
    ManageTrailingSL();

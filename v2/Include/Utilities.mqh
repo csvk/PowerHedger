@@ -69,6 +69,7 @@ void CalculateBalances()
             g_sequences[seqIdx].volSell = 0; 
             g_sequences[seqIdx].midPrice = 0; 
             g_sequences[seqIdx].state = SEQ_ACTIVE;
+            g_sequences[seqIdx].lastPyramidSL = 0;
          }
          if(m_position.PositionType() == POSITION_TYPE_BUY) g_sequences[seqIdx].volBuy += vol;
          else g_sequences[seqIdx].volSell += vol;

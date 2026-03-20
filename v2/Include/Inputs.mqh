@@ -30,6 +30,12 @@ input double   LockProfitPips       = 10.0;      // Lock Profit Pips (Activate T
 input double   KeepProfitPercent    = 50.0;      // Keep Profit Percent (Trimming Fund portion)
 input double   TrailingStopPips     = 5.0;       // Trailing Stop Pips
 
+//--- PRD 5.4: Group - Pyramiding Positions
+input group "Pyramiding Positions"
+input bool     PyramidAllowed       = false;     // Pyramiding Allowed
+input double   PyramidRiskPercent   = 10.0;      // Pyramid Risk Percent (of secured profit)
+input double   PyramidPips          = 10.0;      // Pyramid Pips (Spacing between additional entries)
+
 //--- PRD 2.3: Group - Market/Session Filters (Entry Only)
 input group "Market Session Filters (Entry Only)"
 input bool     SydneyActive         = true;      // Allow Sydney session

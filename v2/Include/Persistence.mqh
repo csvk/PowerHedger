@@ -46,8 +46,8 @@ void SaveState()
       
       content += "\"Sequences\":[";
       for(int i=0; i<ArraySize(g_sequences); i++) {
-         content += StringFormat("{\"m\":%I64d,\"s\":%d}", 
-                                 g_sequences[i].magic, (int)g_sequences[i].state);
+         content += StringFormat("{\"m\":%I64d,\"s\":%d,\"p\":%.5f}", 
+                                 g_sequences[i].magic, (int)g_sequences[i].state, g_sequences[i].lastPyramidSL);
          if(i < ArraySize(g_sequences)-1) content += ",";
       }
       content += "],";
@@ -124,20 +124,25 @@ void LoadState()
             for(int i=0; i<count; i++) {
                int pm = StringFind(items[i], "\"m\":");
                int ps = StringFind(items[i], "\"s\":");
+               int pp = StringFind(items[i], "\"p\":");
                if(pm >= 0 && ps >= 0) {
                   int size = ArraySize(g_sequences);
                   ArrayResize(g_sequences, size + 1);
                   string mVal = StringSubstr(items[i], pm + 4);
                   string sVal = StringSubstr(items[i], ps + 4);
+                  string pVal = (pp >= 0) ? StringSubstr(items[i], pp + 4) : "0";
                   
                   int mEnd = StringFind(mVal, ","); if(mEnd < 0) mEnd = StringFind(mVal, "\"");
                   int sEnd = StringFind(sVal, ","); if(sEnd < 0) sEnd = StringFind(sVal, "\"");
+                  int pEnd = StringFind(pVal, ","); if(pEnd < 0) pEnd = StringFind(pVal, "\"");
                   
                   if(mEnd > 0) mVal = StringSubstr(mVal, 0, mEnd);
                   if(sEnd > 0) sVal = StringSubstr(sVal, 0, sEnd);
+                  if(pEnd > 0) pVal = StringSubstr(pVal, 0, pEnd);
                   
                   g_sequences[size].magic = StringToInteger(mVal);
                   g_sequences[size].state = (ENUM_SEQUENCE_STATE)StringToInteger(sVal);
+                  g_sequences[size].lastPyramidSL = StringToDouble(pVal);
                   // Other fields will be populated by CalculateBalances in the first tick
                   g_sequences[size].volBuy = 0;
                   g_sequences[size].volSell = 0;

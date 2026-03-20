@@ -113,6 +113,33 @@ Efficient debt reduction via profit harvesting.
 ### 5.3 Capitulation Rule
 - If the total lot size or risk threshold is reached, the EA executes a **Capitulation**: fully closing the Locked Sequence with the **farthest Mid-Price** at a market loss.
 
+### 5.4 Pyramiding Positions
+Pyramiding allows adding more positions to an existing winning trade when profit is secured via Trailing SL.
+
+- **Pyramiding Allowed (Bool)**: Enables adding additional positions.
+- **Pyramid Risk Percent (Double)**: Percentage of secured profit to risk for each new position.
+- **Pyramid Pips (Double)**: The distance the Stop Loss must move from its level at the previous pyramid entry before another position is allowed.
+- **First Pyramid Condition**:
+    - Active trade exists and has a Stop Loss set.
+    - Stop Loss must be in profit (SL > Entry for Buy, SL < Entry for Sell).
+- **Subsequent Pyramid Condition**:
+    - Current Stop Loss has moved by at least `Pyramid Pips` from the SL price at the time of the last pyramid entry.
+- **Risk Calculation**:
+    - **TotalSecuredProfit**: The sum of profit locked by the current Stop Loss for **ALL** unhedged positions in the sequence.
+        - `PositionSecuredProfit = ABS(StopLoss - PositionEntryPrice) * PositionVolume * TickValue`.
+        - `TotalSecuredProfit = Σ (PositionSecuredProfit)`.
+    - **RiskAmount**:
+        - If **No Locked Sequences** exist on the chart: `RiskAmount = TotalSecuredProfit * (PyramidRiskPercent / 100)`.
+        - If **Locked Sequences** exist: `RiskAmount = (TotalSecuredProfit * (1 - KeepProfitPercent / 100)) * (PyramidRiskPercent / 100)`.
+- **Position Sizing**:
+    - `PyramidLotSize = RiskAmount / (ABS(CurrentPrice - StopLoss) * TickValue)`.
+    - If `PyramidLotSize < 0.01`, the trade is not entered.
+- **Trade Attributes**:
+    - **Magic Number**: Same as the original position.
+    - **Stop Loss**: Always synced with the original position's current SL.
+    - **Trailing Stop**: When the Trailing Stop triggers for the original position, it simultaneously updates the SL for all other unhedged positions in the same sequence.
+    - **Tally**: Closed pyramid positions contribute to the `ProfitTally` and `UnharvestedProfit` in the same way as original positions.
+
 ---
 
 ## 6. Persistence & Logging
@@ -124,4 +151,5 @@ Efficient debt reduction via profit harvesting.
     - **[HEDGE]**: Sequence lockdown event.
     - **[TRIM]**: Debt reduction details (Profit used, volumes closed).
     - **[CAPITULATION]**: Emergency margin recovery.
+    - **[PYRAMID]**: Pyramid entry details (Secured Profit, Risk Amount, Lot Size, SL level).
     - **[TRAILING]**: Updates to SL for Active trades.

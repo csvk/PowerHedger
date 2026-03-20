@@ -151,10 +151,6 @@ void CheckNewEntries()
    if(success) PrintFormat("[SIGNAL] Entry Executed: %s", comment);
 }
 
-//+------------------------------------------------------------------+
-//| PRD 4.1: Symmetrical Hedging                                     |
-//| Locks an active sequence if price moves against it by HedgePips. |
-//+------------------------------------------------------------------+
 void ManageLockedSequences()
 {
    for(int i=0; i<ArraySize(g_sequences); i++) {
@@ -181,6 +177,97 @@ void ManageLockedSequences()
       }
    }
 }
+
+//+------------------------------------------------------------------+
+//| PRD 5.4: Pyramiding Logic                                        |
+//| Adds positions to an active sequence when profit is secured.     |
+//+------------------------------------------------------------------+
+void ManagePyramiding()
+{
+   if(!PyramidAllowed) return;
+
+   for(int i=0; i<ArraySize(g_sequences); i++) {
+      if(g_sequences[i].state == SEQ_ACTIVE) {
+         long magic = g_sequences[i].magic;
+         
+         double totalSecuredProfit = 0;
+         double currentSL = 0;
+         int posCount = 0;
+         ENUM_POSITION_TYPE type = POSITION_TYPE_BUY;
+         
+         double tickSize = m_symbol.TickSize();
+         double tickValue = m_symbol.TickValue();
+         if(tickSize <= 0) tickSize = _Point;
+         
+         for(int j=PositionsTotal()-1; j>=0; j--) {
+            if(m_position.SelectByIndex(j) && m_position.Symbol() == _Symbol && m_position.Magic() == magic) {
+               double sl = m_position.StopLoss();
+               double entry = m_position.PriceOpen();
+               double vol = m_position.Volume();
+               type = m_position.PositionType();
+               
+               if(sl > 0) {
+                  double profitDist = (type == POSITION_TYPE_BUY) ? (sl - entry) : (entry - sl);
+                  if(profitDist > 0) {
+                     double posSecured = (profitDist / tickSize) * tickValue * vol;
+                     totalSecuredProfit += posSecured;
+                     if(currentSL == 0) currentSL = sl;
+                  }
+               }
+               posCount++;
+            }
+         }
+         
+         if(posCount == 0 || currentSL == 0) continue; 
+         
+         double slChange = MathAbs(currentSL - g_sequences[i].lastPyramidSL);
+         double reqChange = PyramidPips * m_symbol.Point() * 10;
+         if(g_sequences[i].lastPyramidSL > 0 && slChange < reqChange - 0.0000001) continue;
+         
+         double availableProfit = totalSecuredProfit;
+         bool isHedged = HasLockedSequences();
+         if(isHedged) {
+            availableProfit *= (1.0 - KeepProfitPercent / 100.0);
+         }
+         
+         double riskAmount = availableProfit * (PyramidRiskPercent / 100.0);
+         double currentPrice = (type == POSITION_TYPE_BUY) ? m_symbol.Ask() : m_symbol.Bid();
+         double distToSL = MathAbs(currentPrice - currentSL);
+         
+         if(distToSL <= tickSize) continue;
+         
+         double pyramidLots = riskAmount / ((distToSL / tickSize) * tickValue);
+         double flooredLots = MathFloor(pyramidLots / m_symbol.LotsStep()) * m_symbol.LotsStep();
+         
+         if(flooredLots < m_symbol.LotsMin()) continue;
+         
+         double totalLots = (type == POSITION_TYPE_BUY) ? g_totalBuyLots : g_totalSellLots;
+         if(totalLots + flooredLots > MaxLots) {
+            PrintFormat("[WARNING] Pyramid for Magic %I64d blocked by MaxLots (%.2f). Proposed: %.2f", magic, MaxLots, totalLots + flooredLots);
+            continue;
+         }
+         
+         m_trade.SetExpertMagicNumber(magic);
+         string side = (type == POSITION_TYPE_BUY) ? "[LONG]" : "[SHORT]";
+         string comment = StringFormat("[%I64d] [PYRAMID] %s", magic, side);
+         
+         bool success = false;
+         if(type == POSITION_TYPE_BUY) success = m_trade.Buy(flooredLots, _Symbol, m_symbol.Ask(), currentSL, 0, comment);
+         else success = m_trade.Sell(flooredLots, _Symbol, m_symbol.Bid(), currentSL, 0, comment);
+
+         if(success) {
+            PrintFormat("[PYRAMID] Triggered for Magic %I64d: TotalSecured: %.2f, Risk: %.2f, LotSize: %.2f, SL: %.5f", 
+                        magic, totalSecuredProfit, riskAmount, flooredLots, currentSL);
+            g_sequences[i].lastPyramidSL = currentSL;
+            TriggerSave();
+         } else {
+            PrintFormat("[ERROR] Pyramid Magic %I64d execution failed: %d", magic, GetLastError());
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
 //| PRD 5.1: Symmetrical Trimming Logic                              |
@@ -334,19 +421,32 @@ void ManageTrailingSL()
             double currentSL = m_position.StopLoss();
             
             // Re-check betterment before processing harvest
-            bool better = (m_position.PositionType() == POSITION_TYPE_BUY) ? (newSL > currentSL || currentSL == 0) : (newSL < currentSL || currentSL == 0);
+            bool better = false;
+            double diff = (m_position.PositionType() == POSITION_TYPE_BUY) ? (newSL - currentSL) : (currentSL - newSL);
+            if(currentSL == 0 || diff > 0.5 * m_symbol.Point()) better = true;
+
             if(!better) continue;
 
             ulong ticket = m_position.Ticket();
-            if(m_trade.PositionModify(ticket, newSL, 0)) {
-               if(currentSL == 0) {
-                  PrintFormat("[TRADE] Profit Locked: Ticket %I64u SL set at %.5f (Pips: %.1f, TrailPips: %.1f)", 
-                              ticket, newSL, pips, TrailingStopPips);
-               } else {
-                  PrintFormat("[TRADE] Trailing Stop updated: %.5f -> %.5f (Ticket %I64u, Pips: %.1f, TrailPips: %.1f)", 
-                              currentSL, newSL, ticket, pips, TrailingStopPips);
+            
+            // Sync SL to all unhedged positions of the same magic
+            bool anyFailed = false;
+            for(int j=PositionsTotal()-1; j>=0; j--) {
+               if(m_position.SelectByIndex(j) && m_position.Symbol() == _Symbol && m_position.Magic() == magic) {
+                  if(!m_trade.PositionModify(m_position.Ticket(), newSL, 0)) anyFailed = true;
                }
             }
+
+            if(!anyFailed) {
+               if(currentSL == 0) {
+                  PrintFormat("[TRADE] Profit Locked: Sequence %I64d SL set at %.5f (Pips: %.1f, TrailPips: %.1f)", 
+                              magic, newSL, pips, TrailingStopPips);
+               } else {
+                  PrintFormat("[TRADE] Trailing Stop updated: %.5f -> %.5f (Sequence %I64d, Pips: %.1f, TrailPips: %.1f)", 
+                              currentSL, newSL, magic, pips, TrailingStopPips);
+               }
+            }
+            break; // Processed this sequence, move to next position in outer loop
          }
       }
    }

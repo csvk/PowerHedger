@@ -22,16 +22,35 @@ The EA identifies trade opportunities using a combination of technical indicator
 - **Session & Weekday Filters**: Entries are subject to configurable Sydney, Tokyo, London, and New York session windows and specific weekdays.
 - **No Distance Rule**: There is no minimum distance requirement (`MinPipGap`) between a new signal and existing hedged trades.
 
-### 2.2 Indicator Logic
-The EA uses a "Universal Alignment" principle. All indicators set to `Use = True` must align in the same direction, or return `PASS`. Any `NEUTRAL` output (rule mismatch) blocks the trade.
+### 2.2 Indicator Logic & Combination Matrix
 
-- **RSI**: Calculated on M1-D1. Crossovers of defined Buy/Sell levels.
-- **EMA Sets**: Groups of three EMAs (Fast, Mid, Slow). Periods derived from `EMAPeriods` Enum (e.g., EMA_P1: 5-10-20).
-    - `WITH_TREND`: Fast > Mid > Slow.
-    - `AGAINST_TREND`: Fast < Mid < Slow.
-    - `RANGING`: Not aligned.
-- **ADX**: Trend strength and directional (+DI/-DI) filters.
-- **Bollinger Bands**: Volatility filters and extreme price rejection.
+The EA uses a "Universal Alignment" principle.
+1.  **Strict Rule Alignment**: If an indicator rule is directional (`WITH_TREND`, `AGAINST_TREND`, `AVOID_EXTREME`), it must produce the required direction. If it doesn't, it returns `NEUTRAL`, which **blocks** the trade.
+2.  **Pass Allowance**: Only rules explicitly defined as `RANGING` can return a `PASS` state. `PASS` allows the trade to proceed if **other** indicators provide a clear direction.
+
+#### Individual Indicator Outputs
+| Indicator | Selected Rule | Result: BUY | Result: SELL | Result: PASS | Result: NEUTRAL |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **RSI** | `AGAINST_TREND` | Crossover < 30 | Crossover > 70 | N/A | Else (Blocks) |
+| **RSI** | `WITH_TREND` | Crossover > 70 | Crossover < 30 | N/A | Else (Blocks) |
+| **EMA** | `WITH_TREND` | Fast > Mid > Slow | Fast < Mid < Slow | N/A | Else (Blocks) |
+| **EMA** | `AGAINST_TREND` | Fast < Mid < Slow | Fast > Mid > Slow | N/A | Else (Blocks) |
+| **EMA** | `RANGING` | N/A | N/A | Not Aligned | Aligned (Blocks) |
+| **ADX** | `WITH_TREND` | ADX > Trend, +DI > -DI | ADX > Trend, -DI > +DI | N/A | Else (Blocks) |
+| **ADX** | `AVOID_EXTREME` | Extreme > ADX > Trend, +DI > -DI | Extreme > ADX > Trend, -DI > +DI | N/A | Else (Blocks) |
+| **ADX** | `AGAINST_TREND` | ADX > Extreme, -DI > +DI | ADX > Extreme, +DI > -DI | N/A | Else (Blocks) |
+| **ADX** | `RANGING` | N/A | N/A | ADX < Range | Else (Blocks) |
+| **ADX** | `EXTREME_ONLY` | ADX >= Extreme, +DI > -DI | ADX >= Extreme, -DI > +DI | N/A | Else (Blocks) |
+| **BB** | `AVOID_EXTREME` | N/A | N/A | Lower < Price < Upper | Else (Blocks) |
+| **BB** | `AGAINST_TREND` | Price <= Lower Band | Price >= Upper Band | N/A | Else (Blocks) |
+| **BB** | `EXTREME_ONLY` | Price >= Upper Band | Price <= Lower Band | N/A | Else (Blocks) |
+
+#### Directional Determination Policy
+1.  Collect output from all `Use = True` indicators.
+2.  If any indicator returns `NEUTRAL` (failed directional condition), discard signal.
+3.  If any indicators return `BUY` and others return `SELL`, discard signal (Conflict).
+4.  At least one indicator must provide a `BUY` or `SELL` output (All `PASS` = No Trade).
+5.  A signal is only valid if all non-pass outputs are in the same direction.
 
 ---
 

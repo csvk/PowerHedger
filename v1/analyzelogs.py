@@ -314,6 +314,9 @@ class TradeAnalyzer:
 
         while True:
             try:
+                if os.path.exists(filename):
+                    print(f"Deleting existing file: {filename}")
+                    os.remove(filename)
                 with open(filename, 'w', newline='', encoding='utf-8') as f:
                     dict_writer = csv.DictWriter(f, fieldnames=keys)
                     dict_writer.writeheader()

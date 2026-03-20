@@ -159,59 +159,169 @@ bool InitIndicators() {
    if(S2UseEMA) { int f,m,s; GetEMAPeriods(S2EMAPeriods, f,m,s); g_hEMA2_F = iMA(_Symbol, (ENUM_TIMEFRAMES)S2EMATimeframe, f, 0, MODE_EMA, PRICE_CLOSE); g_hEMA2_M = iMA(_Symbol, (ENUM_TIMEFRAMES)S2EMATimeframe, m, 0, MODE_EMA, PRICE_CLOSE); g_hEMA2_S = iMA(_Symbol, (ENUM_TIMEFRAMES)S2EMATimeframe, s, 0, MODE_EMA, PRICE_CLOSE); }
    if(S2UseADX) g_hADX2 = iADX(_Symbol, (ENUM_TIMEFRAMES)S2ADXTimeframe, S2ADXPeriod);
    if(S2UseBB) g_hBB2 = iBands(_Symbol, (ENUM_TIMEFRAMES)S2BBTimeframe, 20, 0, S2BBDeviations, PRICE_CLOSE);
+   
+   if(S3UseRSI) g_hRSI3 = iRSI(_Symbol, (ENUM_TIMEFRAMES)S3RSITimeframe, S3RSIPeriod, PRICE_CLOSE);
+   if(S3UseEMA) { int f,m,s; GetEMAPeriods(S3EMAPeriods, f,m,s); g_hEMA3_F = iMA(_Symbol, (ENUM_TIMEFRAMES)S3EMATimeframe, f, 0, MODE_EMA, PRICE_CLOSE); g_hEMA3_M = iMA(_Symbol, (ENUM_TIMEFRAMES)S3EMATimeframe, m, 0, MODE_EMA, PRICE_CLOSE); g_hEMA3_S = iMA(_Symbol, (ENUM_TIMEFRAMES)S3EMATimeframe, s, 0, MODE_EMA, PRICE_CLOSE); }
+   if(S3UseADX) g_hADX3 = iADX(_Symbol, (ENUM_TIMEFRAMES)S3ADXTimeframe, S3ADXPeriod);
+   if(S3UseBB) g_hBB3 = iBands(_Symbol, (ENUM_TIMEFRAMES)S3BBTimeframe, 20, 0, S3BBDeviations, PRICE_CLOSE);
    return true;
 }
 
 void ReleaseIndicators() {
    IndicatorRelease(g_hRSI1); IndicatorRelease(g_hEMA1_F); IndicatorRelease(g_hEMA1_M); IndicatorRelease(g_hEMA1_S); IndicatorRelease(g_hADX1); IndicatorRelease(g_hBB1);
    IndicatorRelease(g_hRSI2); IndicatorRelease(g_hEMA2_F); IndicatorRelease(g_hEMA2_M); IndicatorRelease(g_hEMA2_S); IndicatorRelease(g_hADX2); IndicatorRelease(g_hBB2);
+   IndicatorRelease(g_hRSI3); IndicatorRelease(g_hEMA3_F); IndicatorRelease(g_hEMA3_M); IndicatorRelease(g_hEMA3_S); IndicatorRelease(g_hADX3); IndicatorRelease(g_hBB3);
 }
 
 //+------------------------------------------------------------------+
 //| PRD 2.2: Universal Alignment Matrix                              |
 //+------------------------------------------------------------------+
-int GetStrategySignal(int sNum) {
-   bool useRSI = (sNum==1)?S1UseRSI:S2UseRSI;
-   bool useEMA = (sNum==1)?S1UseEMA:S2UseEMA;
-   bool useADX = (sNum==1)?S1UseADX:S2UseADX;
-   bool useBB = (sNum==1)?S1UseBB:S2UseBB;
+//+------------------------------------------------------------------+
+//| Helpers: Convert Enums to Strings for Display                    |
+//+------------------------------------------------------------------+
+string GetRSIRuleName(ENUM_RSI_TREND_RULE rule) { return (rule == RSI_WITH_TREND) ? "Trade with Trend" : "Trade against Trend"; }
+string GetEMARuleName(ENUM_EMA_TREND_RULE rule) { if(rule == EMA_WITH_TREND) return "Trade with Trend"; else if(rule == EMA_AGAINST_TREND) return "Trade against Trend"; return "Trade when Ranging"; }
+string GetADXRuleName(ENUM_ADX_TREND_RULE rule) { if(rule == ADX_WITH_TREND) return "Trade with Trend"; else if(rule == ADX_WITH_TREND_AVOID_EXTREME) return "Trade with Trend but avoid Extreme"; else if(rule == ADX_AGAINST_TREND) return "Trade against Trend"; else if(rule == ADX_RANGING) return "Trade when Ranging"; return "Trade only at Extreme Trend levels"; }
+string GetBBRuleName(ENUM_BB_TREND_RULE rule) { if(rule == BB_AVOID_EXTREME_TREND) return "Avoid Extreme Trend"; else if(rule == BB_AGAINST_TREND) return "Trade against Trend"; return "Trade only at Extreme Trend (Breakout)"; }
+string GetSignalName(ENUM_IND_SIGNAL sig) { if(sig == IND_BUY) return "BUY"; else if (sig == IND_SELL) return "SELL"; else if (sig == IND_PASS) return "PASS"; return "NEUTRAL"; }
+
+//+------------------------------------------------------------------+
+//| PRD 2.2: Universal Alignment Matrix                              |
+//| Returns: 1 (Buy), -1 (Sell), 0 (No Signal)                       |
+//+------------------------------------------------------------------+
+int GetStrategySignal(int sNum, string &explanation) {
+   explanation = "";
    
-   ENUM_EMA_TREND_RULE emaRule = (sNum==1)?S1EMATrendRule:S2EMATrendRule;
-   ENUM_ADX_TREND_RULE adxRule = (sNum==1)?S1ADXTrendRule:S2ADXTrendRule;
-   ENUM_BB_TREND_RULE bbRule = (sNum==1)?S1BBRule:S2BBRule;
-   double rsiSell = (sNum==1)?S1RSISellLevel:S2RSISellLevel;
+   bool useRSI = (sNum==1)?S1UseRSI:(sNum==2)?S2UseRSI:S3UseRSI;
+   bool useEMA = (sNum==1)?S1UseEMA:(sNum==2)?S2UseEMA:S3UseEMA;
+   bool useADX = (sNum==1)?S1UseADX:(sNum==2)?S2UseADX:S3UseADX;
+   bool useBB = (sNum==1)?S1UseBB:(sNum==2)?S2UseBB:S3UseBB;
+   
+   ENUM_EMA_TREND_RULE emaRule = (sNum==1)?S1EMATrendRule:(sNum==2)?S2EMATrendRule:S3EMATrendRule;
+   ENUM_ADX_TREND_RULE adxRule = (sNum==1)?S1ADXTrendRule:(sNum==2)?S2ADXTrendRule:S3ADXTrendRule;
+   ENUM_BB_TREND_RULE bbRule = (sNum==1)?S1BBRule:(sNum==2)?S2BBRule:S3BBRule;
+   
+   double rsiSell = (sNum==1)?S1RSISellLevel:(sNum==2)?S2RSISellLevel:S3RSISellLevel;
    double rsiBuy = 100.0 - rsiSell;
    
-   int buyVotes = 0, sellVotes = 0, activeInds = 0;
+   ENUM_IND_SIGNAL rsiRes=IND_PASS, emaRes=IND_PASS, adxRes=IND_PASS, bbRes=IND_PASS;
+   string rsiStr="", emaStr="", adxStr="", bbStr="";
    
+   // 1. RSI
    if(useRSI) {
-      activeInds++; double r[]; int h = (sNum==1)?g_hRSI1:g_hRSI2;
-      if(CopyBuffer(h,0,0,2,r)==2) { if(r[0]<rsiBuy && r[1]>=rsiBuy) buyVotes++; else if(r[0]>rsiSell && r[1]<=rsiSell) sellVotes++; }
+      double r[]; int h = (sNum==1)?g_hRSI1:(sNum==2)?g_hRSI2:g_hRSI3;
+      ENUM_RSI_TREND_RULE rsiRule = (sNum==1)?S1RSITrendRule:(sNum==2)?S2RSITrendRule:S3RSITrendRule;
+      
+      if(CopyBuffer(h,0,0,2,r)==2) {
+         if(rsiRule == RSI_AGAINST_TREND) {
+            if(r[0]>=rsiBuy && r[1]<rsiBuy) rsiRes=IND_BUY;
+            else if(r[0]<=rsiSell && r[1]>rsiSell) rsiRes=IND_SELL;
+            else rsiRes=IND_NEUTRAL;
+         } else { // RSI_WITH_TREND
+            if(r[0]<=rsiSell && r[1]>rsiSell) rsiRes=IND_BUY;
+            else if(r[0]>=rsiBuy && r[1]<rsiBuy) rsiRes=IND_SELL;
+            else rsiRes=IND_NEUTRAL;
+         }
+         double th = 0;
+         if(rsiRes == IND_BUY) th = (rsiRule == RSI_AGAINST_TREND) ? rsiBuy : rsiSell;
+         else if(rsiRes == IND_SELL) th = (rsiRule == RSI_AGAINST_TREND) ? rsiSell : rsiBuy;
+         else th = (r[1] > 50) ? rsiSell : rsiBuy;
+
+         rsiStr = StringFormat("- RSI (%s) : %.1f %s %.1f : %s", GetRSIRuleName(rsiRule), r[1], (r[1]>th?">":"<"), th, GetSignalName(rsiRes));
+      } else { rsiRes=IND_NEUTRAL; rsiStr="- RSI: Error copying buffer"; }
    }
+   
+   // 2. EMA
    if(useEMA) {
-      activeInds++; double f[],m[],s[]; int hf=(sNum==1)?g_hEMA1_F:g_hEMA2_F, hm=(sNum==1)?g_hEMA1_M:g_hEMA2_M, hs=(sNum==1)?g_hEMA1_S:g_hEMA2_S;
+      double f[],m[],s[]; int hf=(sNum==1)?g_hEMA1_F:(sNum==2)?g_hEMA2_F:g_hEMA3_F, hm=(sNum==1)?g_hEMA1_M:(sNum==2)?g_hEMA2_M:g_hEMA3_M, hs=(sNum==1)?g_hEMA1_S:(sNum==2)?g_hEMA2_S:g_hEMA3_S;
       if(CopyBuffer(hf,0,0,1,f)==1 && CopyBuffer(hm,0,0,1,m)==1 && CopyBuffer(hs,0,0,1,s)==1) {
          bool bull = (f[0]>m[0] && m[0]>s[0]); bool bear = (f[0]<m[0] && m[0]<s[0]);
-         if(emaRule==EMA_WITH_TREND) { if(bull) buyVotes++; else if(bear) sellVotes++; }
-         else { if(bull) sellVotes++; else if(bear) buyVotes++; }
-      }
-   }
-   if(useADX) {
-      activeInds++; double a[],p[],mn[]; int h=(sNum==1)?g_hADX1:g_hADX2;
-      if(CopyBuffer(h,0,0,1,a)==1 && CopyBuffer(h,1,0,1,p)==1 && CopyBuffer(h,2,0,1,mn)==1) {
-         double lvl = (sNum==1)?S1ADXTrendLevel:S2ADXTrendLevel;
-         if(a[0]>lvl) { if(p[0]>mn[0]) buyVotes++; else sellVotes++; }
-      }
-   }
-   if(useBB) {
-      activeInds++; double u[],l[]; int h=(sNum==1)?g_hBB1:g_hBB2;
-      if(CopyBuffer(h,1,0,1,u)==1 && CopyBuffer(h,2,0,1,l)==1) {
-         if(m_symbol.Ask()<=l[0]) buyVotes++; else if(m_symbol.Bid()>=u[0]) sellVotes++;
-      }
+         string rf = (f[0]>m[0])?">":(f[0]<m[0])?"<":"=";
+         string rm = (m[0]>s[0])?">":(m[0]<s[0])?"<":"=";
+         string vals = StringFormat("F(%.5f) %s M(%.5f) %s S(%.5f)", f[0], rf, m[0], rm, s[0]);
+         
+         if(emaRule == EMA_WITH_TREND) {
+            if(bull) emaRes=IND_BUY; else if(bear) emaRes=IND_SELL; else emaRes=IND_NEUTRAL;
+         } else if(emaRule == EMA_AGAINST_TREND) {
+            if(bull) emaRes=IND_SELL; else if(bear) emaRes=IND_BUY; else emaRes=IND_NEUTRAL;
+         } else if(emaRule == EMA_RANGING) {
+            if(!bull && !bear) emaRes=IND_PASS; else emaRes=IND_NEUTRAL;
+         }
+         emaStr = StringFormat("- EMA (%s) : %s : %s", GetEMARuleName(emaRule), vals, GetSignalName(emaRes));
+      } else { emaRes=IND_NEUTRAL; emaStr="- EMA: Error copying buffer"; }
    }
    
-   if(activeInds > 0 && buyVotes == activeInds) return 1;
-   if(activeInds > 0 && sellVotes == activeInds) return -1;
+   // 3. ADX
+   if(useADX) {
+      double a[],p[],mn[]; int h=(sNum==1)?g_hADX1:(sNum==2)?g_hADX2:g_hADX3;
+      if(CopyBuffer(h,0,0,1,a)==1 && CopyBuffer(h,1,0,1,p)==1 && CopyBuffer(h,2,0,1,mn)==1) {
+         double trendLvl = (sNum==1)?S1ADXTrendLevel:(sNum==2)?S2ADXTrendLevel:S3ADXTrendLevel;
+         double extremeLvl = (sNum==1)?S1ADXExtremeLevel:(sNum==2)?S2ADXExtremeLevel:S3ADXExtremeLevel;
+         double rangeLvl = (sNum==1)?S1ADXRangeLevel:(sNum==2)?S2ADXRangeLevel:S3ADXRangeLevel;
+         
+         double thVal = 0; string thType = "";
+         if(adxRule==ADX_WITH_TREND || adxRule==ADX_WITH_TREND_AVOID_EXTREME) { thVal = trendLvl; thType = "Trend"; }
+         else if(adxRule==ADX_AGAINST_TREND || adxRule==ADX_EXTREME_ONLY) { thVal = extremeLvl; thType = "Extreme"; }
+         else if(adxRule==ADX_RANGING) { thVal = rangeLvl; thType = "Range"; }
+         
+         string rADX = (a[0]>thVal)?">":(a[0]<thVal)?"<":"=";
+         string rDI = (p[0]>mn[0])?">":(p[0]<mn[0])?"<":"=";
+         string vals = StringFormat("%.1f %s %.1f (%s) (DI+ %.1f %s DI- %.1f)", a[0], rADX, thVal, thType, p[0], rDI, mn[0]);
+         
+         if(adxRule == ADX_WITH_TREND) {
+            if(a[0]>trendLvl) { if(p[0]>mn[0]) adxRes=IND_BUY; else adxRes=IND_SELL; } else adxRes=IND_NEUTRAL;
+         } else if(adxRule == ADX_WITH_TREND_AVOID_EXTREME) {
+            if(a[0]>trendLvl && a[0]<extremeLvl) { if(p[0]>mn[0]) adxRes=IND_BUY; else adxRes=IND_SELL; } else adxRes=IND_NEUTRAL;
+         } else if(adxRule == ADX_AGAINST_TREND) {
+            if(a[0]>extremeLvl) { if(p[0]>mn[0]) adxRes=IND_SELL; else adxRes=IND_BUY; } else adxRes=IND_NEUTRAL;
+         } else if(adxRule == ADX_RANGING) {
+            if(a[0]<rangeLvl) adxRes=IND_PASS; else adxRes=IND_NEUTRAL;
+         } else if(adxRule == ADX_EXTREME_ONLY) {
+            if(a[0]>=extremeLvl) { if(p[0]>mn[0]) adxRes=IND_BUY; else adxRes=IND_SELL; } else adxRes=IND_NEUTRAL;
+         }
+         adxStr = StringFormat("- ADX (%s) : %s : %s", GetADXRuleName(adxRule), vals, GetSignalName(adxRes));
+      } else { adxRes=IND_NEUTRAL; adxStr="- ADX: Error copying buffer"; }
+   }
+   
+   // 4. BB
+   if(useBB) {
+      double u[],l[]; int h=(sNum==1)?g_hBB1:(sNum==2)?g_hBB2:g_hBB3;
+      if(CopyBuffer(h,1,0,1,u)==1 && CopyBuffer(h,2,0,1,l)==1) {
+         double ask = m_symbol.Ask(); double bid = m_symbol.Bid(); double mid = (ask+bid)/2.0;
+         string rL = (mid > l[0])?">":(mid < l[0])?"<":"=";
+         string rU = (mid < u[0])?"<":(mid > u[0])?">":"=";
+         string prce = StringFormat("L(%.5f) %s Price(%.5f) %s U(%.5f)", l[0], rL, mid, rU, u[0]);
+         
+         if(bbRule == BB_AVOID_EXTREME_TREND) {
+            if(bid > l[0] && ask < u[0]) bbRes=IND_PASS; else bbRes=IND_NEUTRAL;
+         } else if(bbRule == BB_AGAINST_TREND) {
+            if(ask <= l[0]) bbRes=IND_BUY; else if(bid >= u[0]) bbRes=IND_SELL; else bbRes=IND_NEUTRAL;
+         } else if(bbRule == BB_EXTREME_ONLY) {
+            if(ask >= u[0]) bbRes=IND_BUY; else if(bid <= l[0]) bbRes=IND_SELL; else bbRes=IND_NEUTRAL;
+         }
+         bbStr = StringFormat("- BB (%s) : %s : %s", GetBBRuleName(bbRule), prce, GetSignalName(bbRes));
+      } else { bbRes=IND_NEUTRAL; bbStr="- BB: Error copying buffer"; }
+   }
+   
+   // 5. Universal Alignment Policy
+   bool buyS=false, sellS=false, neutralP=false;
+   int buyCount=0, sellCount=0, passCount=0;
+   
+   // Collect results
+   explanation = "--------------------------------------------------\n";
+   if(useRSI) { explanation += rsiStr + "\n"; if(rsiRes==IND_NEUTRAL) neutralP=true; else if(rsiRes==IND_BUY) buyCount++; else if(rsiRes==IND_SELL) sellCount++; else passCount++; }
+   if(useEMA) { explanation += emaStr + "\n"; if(emaRes==IND_NEUTRAL) neutralP=true; else if(emaRes==IND_BUY) buyCount++; else if(emaRes==IND_SELL) sellCount++; else passCount++; }
+   if(useADX) { explanation += adxStr + "\n"; if(adxRes==IND_NEUTRAL) neutralP=true; else if(adxRes==IND_BUY) buyCount++; else if(adxRes==IND_SELL) sellCount++; else passCount++; }
+   if(useBB)  { explanation += bbStr  + "\n"; if(bbRes==IND_NEUTRAL)  neutralP=true; else if(bbRes==IND_BUY)  buyCount++; else if(bbRes==IND_SELL)  sellCount++; else passCount++; }
+   explanation += "--------------------------------------------------";
+   
+   if(neutralP) return 0; // Blocked
+   if(buyCount > 0 && sellCount > 0) return 0; // Conflict
+   if(buyCount == 0 && sellCount == 0) return 0; // All Pass (No Direction)
+   
+   if(buyCount > 0) return 1;
+   if(sellCount > 0) return -1;
+   
    return 0;
 }
 

@@ -50,6 +50,13 @@ enum ENUM_IND_SIGNAL
    IND_NEUTRAL   // Condition not met (Blocks trade entry)
 };
 
+//--- RSI Trend Rules
+enum ENUM_RSI_TREND_RULE
+{
+   RSI_WITH_TREND,   // Momentum: Buy > 70, Sell < 30
+   RSI_AGAINST_TREND // Mean Reversion: Buy < 30, Sell > 70
+};
+
 //--- Sequence State (PRD 4.1, 5.2)
 enum ENUM_SEQUENCE_STATE
 {
@@ -71,21 +78,27 @@ enum ENUM_ADX_TREND_RULE
    ADX_WITH_TREND,               // Trade with Trend
    ADX_WITH_TREND_AVOID_EXTREME, // Trade with Trend but avoid Extreme
    ADX_AGAINST_TREND,            // Trade against Trend
-   ADX_RANGING                   // Trade when Ranging
+   ADX_RANGING,                  // Trade when Ranging
+   ADX_EXTREME_ONLY              // Trade only at Extreme Trend levels
 };
 
 //--- BB Trend Rules (PRD 2.2)
 enum ENUM_BB_TREND_RULE
 {
    BB_AVOID_EXTREME_TREND, // Avoid Extreme Trend
-   BB_AGAINST_TREND        // Trade against Trend
+   BB_AGAINST_TREND,       // Trade against Trend
+   BB_EXTREME_ONLY         // Trade only at Extreme Trend (Breakout)
 };
 
 //--- Strategy Prioritization (PRD 2.2)
 enum ENUM_STRATEGY_PRIORITY
 {
-   PRIORITY_S1_S2, // S1 - S2
-   PRIORITY_S2_S1  // S2 - S1
+   PRIORITY_S1_S2_S3, // S1 - S2 - S3
+   PRIORITY_S2_S1_S3, // S2 - S1 - S3
+   PRIORITY_S1_S3_S2, // S1 - S3 - S2
+   PRIORITY_S2_S3_S1, // S2 - S3 - S1
+   PRIORITY_S3_S1_S2, // S3 - S1 - S2
+   PRIORITY_S3_S2_S1  // S3 - S2 - S1
 };
 
 //--- Market Context for Trade Comments (PRD 6)

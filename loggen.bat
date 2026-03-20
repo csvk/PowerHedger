@@ -15,6 +15,16 @@ set DEST_DIR="d:\Trading\PowerHedger\test"
 
 echo Checking for the latest log file in:
 echo %SRC_DIR%
+echo.
+
+:: Get current date in YYYYMMDD format
+for /f "tokens=*" %%i in ('powershell -Command "Get-Date -Format 'yyyyMMdd'"') do set CURRENT_DATE=%%i
+
+:: Delete today's log in destination if it exists
+if exist "%DEST_DIR%\!CURRENT_DATE!.log" (
+    echo Deleting today's log in destination: !CURRENT_DATE!.log
+    del /q "%DEST_DIR%\!CURRENT_DATE!.log"
+)
 
 :: Identify the latest log file based on filename (date)
 :: Sorting by name (/o:n) since format is YYYYMMDD.log

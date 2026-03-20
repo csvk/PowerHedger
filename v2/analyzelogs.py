@@ -196,7 +196,7 @@ class TradeAnalyzerV2:
 
             if inferred_magic is not None:
                 if inferred_magic not in self.sequences:
-                    self.sequences[magic] = {
+                    self.sequences[inferred_magic] = {
                         'state': 'ACTIVE',
                         'midPrice': 0.0,
                         'volBuy': 0.0,
@@ -232,8 +232,8 @@ class TradeAnalyzerV2:
                     if "[HEDGE]" in comment:
                         seq['state'] = 'LOCKED'
                         # Calculate MidPrice when locked
-                        buy_price = sum(p['price'] * p['vol'] for p in seq['open_positions'] if p['type'] == 'buy') / seq['volBuy']
-                        sell_price = sum(p['price'] * p['vol'] for p in seq['open_positions'] if p['type'] == 'sell') / seq['volSell']
+                        buy_price = (sum(p['price'] * p['vol'] for p in seq['open_positions'] if p['type'] == 'buy') / seq['volBuy']) if seq['volBuy'] > 0 else 0.0
+                        sell_price = (sum(p['price'] * p['vol'] for p in seq['open_positions'] if p['type'] == 'sell') / seq['volSell']) if seq['volSell'] > 0 else 0.0
                         seq['midPrice'] = (buy_price + sell_price) / 2.0
                         reasoning = f"Sequence {magic} LOCKED"
                         calc_details = f"MidPrice: {round(seq['midPrice'], 5)}"
@@ -367,6 +367,9 @@ class TradeAnalyzerV2:
         
         while True:
             try:
+                if os.path.exists(out_path):
+                    print(f"Deleting existing file: {out_path}")
+                    os.remove(out_path)
                 with open(out_path, 'w', newline='', encoding='utf-8') as f:
                     dict_writer = csv.DictWriter(f, fieldnames=keys)
                     dict_writer.writeheader()

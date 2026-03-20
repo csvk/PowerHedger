@@ -95,7 +95,7 @@ Efficient debt reduction via profit harvesting.
 
 ### 5.1 Active Trade Management
 - [NEW] **KeepProfitPercent**: Percentage of realized/floating profit redirected to the `ProfitTally` (e.g., 50% used for trimming, 50% saved as equity).
-- **LockProfitPips**: The profit level required to activate the Trailing SL.
+- **LockProfitPips**: The profit level required to activate the Trailing SL. This is **relative to HedgePips** (Effective Lock Profit = HedgePips + LockProfitPips).
 - **TrailingStopPips**: The distance used to trail the price.
 
 ### 5.2 Symmetrical Trimming Algorithm

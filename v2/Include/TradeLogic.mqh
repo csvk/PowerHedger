@@ -328,7 +328,8 @@ void ManageTrailingSL()
          double pips = (m_position.PositionType() == POSITION_TYPE_BUY) ? (m_symbol.Bid() - m_position.PriceOpen()) : (m_position.PriceOpen() - m_symbol.Ask());
          pips /= (m_symbol.Point() * 10);
          
-         if(pips >= LockProfitPips) {
+         double effectiveLockProfit = HedgePips + LockProfitPips;
+         if(pips >= effectiveLockProfit) {
             double newSL = (m_position.PositionType() == POSITION_TYPE_BUY) ? (m_symbol.Bid() - TrailingStopPips * m_symbol.Point() * 10) : (m_symbol.Ask() + TrailingStopPips * m_symbol.Point() * 10);
             double currentSL = m_position.StopLoss();
             

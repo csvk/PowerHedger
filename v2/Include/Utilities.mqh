@@ -34,12 +34,18 @@ void CalculateBalances()
    g_totalBuyLots = 0;
    g_totalSellLots = 0;
    
-   // Reset volumes but keep the sequence objects to preserve state
+   // Reset current volumes for all known sequences
    for(int i=0; i<ArraySize(g_sequences); i++) {
       g_sequences[i].volBuy = 0;
       g_sequences[i].volSell = 0;
+      // We don't reset midPrice here because it might be reused if still active
    }
    
+   // Temporary storage for mid-price calculation in one pass
+   struct SeqCalc { double entryB, entryS; int countB, countS; };
+   SeqCalc calcs[]; ArrayResize(calcs, ArraySize(g_sequences));
+   for(int i=0; i<ArraySize(calcs); i++) ZeroMemory(calcs[i]);
+
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
       if(m_position.SelectByIndex(i) && m_position.Symbol() == _Symbol)
@@ -57,6 +63,7 @@ void CalculateBalances()
          if(!isManaged) continue;
 
          double vol = m_position.Volume();
+         double price = m_position.PriceOpen();
          if(m_position.PositionType() == POSITION_TYPE_BUY) g_totalBuyLots += vol;
          else g_totalSellLots += vol;
          
@@ -65,41 +72,43 @@ void CalculateBalances()
          if(seqIdx == -1) {
             seqIdx = ArraySize(g_sequences);
             ArrayResize(g_sequences, seqIdx + 1);
+            ArrayResize(calcs, seqIdx + 1);
             g_sequences[seqIdx].magic = magic;
             g_sequences[seqIdx].volBuy = 0; 
             g_sequences[seqIdx].volSell = 0; 
             g_sequences[seqIdx].midPrice = 0; 
             g_sequences[seqIdx].state = SEQ_ACTIVE;
             g_sequences[seqIdx].lastPyramidSL = 0;
+            ZeroMemory(calcs[seqIdx]);
          }
-         if(m_position.PositionType() == POSITION_TYPE_BUY) g_sequences[seqIdx].volBuy += vol;
-         else g_sequences[seqIdx].volSell += vol;
+         
+         if(m_position.PositionType() == POSITION_TYPE_BUY) {
+            g_sequences[seqIdx].volBuy += vol;
+            calcs[seqIdx].entryB += price;
+            calcs[seqIdx].countB++;
+         } else {
+            g_sequences[seqIdx].volSell += vol;
+            calcs[seqIdx].entryS += price;
+            calcs[seqIdx].countS++;
+         }
       }
    }
    
-   // Cleanup empty sequences (where both legs are 0) and update states
+   // Finalize states and cleanup in one final loop
    for(int i = ArraySize(g_sequences) - 1; i >= 0; i--) {
       if(g_sequences[i].volBuy <= 0 && g_sequences[i].volSell <= 0) {
-         // Sequence closed, remove it
          for(int k=i; k<ArraySize(g_sequences)-1; k++) g_sequences[k] = g_sequences[k+1];
          ArrayResize(g_sequences, ArraySize(g_sequences) - 1);
          continue;
       }
 
-      double entryB = 0, entryS = 0;
-      int countB = 0, countS = 0;
-      for(int j=PositionsTotal()-1; j>=0; j--) {
-         if(m_position.SelectByIndex(j) && m_position.Symbol() == _Symbol) {
-            long magic = m_position.Magic();
-            if(magic == 0) { for(int k=0; k<ArraySize(g_manualMaps); k++) if(m_position.Ticket()==g_manualMaps[k].ticket) { magic=g_manualMaps[k].assignedMagic; break; } }
-            if(magic == g_sequences[i].magic) {
-               if(m_position.PositionType() == POSITION_TYPE_BUY) { entryB += m_position.PriceOpen(); countB++; }
-               else { entryS += m_position.PriceOpen(); countS++; }
-            }
-         }
+      if(calcs[i].countB > 0 && calcs[i].countS > 0) {
+         g_sequences[i].state = SEQ_LOCKED;
+         g_sequences[i].midPrice = (calcs[i].entryB/calcs[i].countB + calcs[i].entryS/calcs[i].countS) / 2.0;
+      } else {
+         g_sequences[i].state = SEQ_ACTIVE;
+         g_sequences[i].midPrice = (calcs[i].countB > 0) ? (calcs[i].entryB/calcs[i].countB) : (calcs[i].entryS/calcs[i].countS);
       }
-      if(countB > 0 && countS > 0) { g_sequences[i].state = SEQ_LOCKED; g_sequences[i].midPrice = (entryB/countB + entryS/countS) / 2.0; }
-      else { g_sequences[i].state = SEQ_ACTIVE; g_sequences[i].midPrice = (countB > 0) ? (entryB/countB) : (entryS/countS); }
    }
 }
 
@@ -320,12 +329,19 @@ int GetStrategySignal(int sNum, string &explanation) {
    int buyCount=0, sellCount=0, passCount=0;
    
    // Collect results
-   explanation = "--------------------------------------------------\n";
-   if(useRSI) { explanation += rsiStr + "\n"; if(rsiRes==IND_NEUTRAL) neutralP=true; else if(rsiRes==IND_BUY) buyCount++; else if(rsiRes==IND_SELL) sellCount++; else passCount++; }
-   if(useEMA) { explanation += emaStr + "\n"; if(emaRes==IND_NEUTRAL) neutralP=true; else if(emaRes==IND_BUY) buyCount++; else if(emaRes==IND_SELL) sellCount++; else passCount++; }
-   if(useADX) { explanation += adxStr + "\n"; if(adxRes==IND_NEUTRAL) neutralP=true; else if(adxRes==IND_BUY) buyCount++; else if(adxRes==IND_SELL) sellCount++; else passCount++; }
-   if(useBB)  { explanation += bbStr  + "\n"; if(bbRes==IND_NEUTRAL)  neutralP=true; else if(bbRes==IND_BUY)  buyCount++; else if(bbRes==IND_SELL)  sellCount++; else passCount++; }
-   explanation += "--------------------------------------------------";
+   if(!g_isOptimizing) {
+      explanation = "--------------------------------------------------\n";
+      if(useRSI) explanation += rsiStr + "\n";
+      if(useEMA) explanation += emaStr + "\n";
+      if(useADX) explanation += adxStr + "\n";
+      if(useBB)  explanation += bbStr  + "\n";
+      explanation += "--------------------------------------------------";
+   }
+
+   if(useRSI) { if(rsiRes==IND_NEUTRAL) neutralP=true; else if(rsiRes==IND_BUY) buyCount++; else if(rsiRes==IND_SELL) sellCount++; else passCount++; }
+   if(useEMA) { if(emaRes==IND_NEUTRAL) neutralP=true; else if(emaRes==IND_BUY) buyCount++; else if(emaRes==IND_SELL) sellCount++; else passCount++; }
+   if(useADX) { if(adxRes==IND_NEUTRAL) neutralP=true; else if(adxRes==IND_BUY) buyCount++; else if(adxRes==IND_SELL) sellCount++; else passCount++; }
+   if(useBB)  { if(bbRes==IND_NEUTRAL)  neutralP=true; else if(bbRes==IND_BUY)  buyCount++; else if(bbRes==IND_SELL)  sellCount++; else passCount++; }
    
    if(neutralP) return 0; // Blocked
    if(buyCount > 0 && sellCount > 0) return 0; // Conflict

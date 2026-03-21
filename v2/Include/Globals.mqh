@@ -29,6 +29,8 @@ double   g_unharvestedProfit = 0;// Persistent bucket for profit not used for tr
 int      g_nextSequenceID = 1;   // Persistent ID for new sequences (PRD 3.1)
 bool     g_isStateDirty  = false; // Dirty flag to consolidate redundant SaveState calls
 datetime g_lastTrimTime  = 0;     // Timestamp of last trim to prevent double-triggering
+bool     g_isOptimizing  = false; // Optimization mode flag
+bool     g_isTester      = false; // Strategy Tester mode flag
 
 //--- SEQUENCE INFO: Tracks individual trade cycles (PRD 3.1, 5.2)
 struct SequenceInfo {

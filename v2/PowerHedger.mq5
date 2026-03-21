@@ -33,6 +33,10 @@ int OnInit()
    
    // PRD Section 6: Setup persistence (BaseMagicNumber used as file root)
    g_fileName = IntegerToString(BaseMagicNumber) + ".json";
+   
+   g_isOptimizing = (bool)MQLInfoInteger(MQL_OPTIMIZATION);
+   g_isTester = (bool)MQLInfoInteger(MQL_TESTER);
+   
    LoadState();
    
    // Sync deal tracker
@@ -67,30 +71,30 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // 1. Sync
+   // 1. Check if processing is needed (Optimization Tip: Skip if no active trade and no entry possible)
+   if(!m_symbol.RefreshRates()) return;
+
+   // 2. Sync State (Only if necessary or periodic)
    ReconcileRecentDeals();
    CalculateBalances();
    
-   if(!m_symbol.RefreshRates()) return;
+   // 3. Adopt Manual Trades (Skip during optimization if not required)
+   if(!g_isOptimizing) AdoptManualTrades();
    
-   // 2. Adopt Manual Trades
-   AdoptManualTrades();
+   // 4. Entry Logic (Quick exit if active trade present)
+   if(!IsActiveTradePresent() && IsSessionActive()) {
+      CheckNewEntries();
+   }
+
+   // 5. Sequence & Hedge Management (Always run for active/locked sequences)
+   if(ArraySize(g_sequences) > 0) {
+      ManageLockedSequences();
+      ManagePyramiding();
+      ManageTrailingSL();
+      CapitulationRule();
+   }
    
-   // 3. Trimming (Risk Reduction)
-   // PerformSymmetricalTrimming(); // Now event-triggered via ReconcileRecentDeals and ManageTrailingSL
-   
-   // 4. Entry & Hedging
-   CheckNewEntries();
-   ManageLockedSequences();
-   ManagePyramiding();
-   
-   // 5. Active Trade Management
-   ManageTrailingSL();
-   
-   // 6. Emergency
-   CapitulationRule();
-   
-   // 7. Persist
+   // 6. Persistence
    SaveStateIfNeeded();
 }
 

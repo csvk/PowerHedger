@@ -124,8 +124,10 @@ void CheckNewEntries()
             string explanation = "";
             int s = GetStrategySignal(stratIndex, explanation);
             if(s != 0) { 
-               PrintFormat("[SIGNAL] Strategy Evaluation: %s", stratN);
-               Print(explanation);
+               if(!g_isOptimizing) {
+                  PrintFormat("[SIGNAL] Strategy Evaluation: %s", stratN);
+                  Print(explanation);
+               }
                
                if(signal == 0) { // Select the first one found (Priority order)
                   signal = s; 
@@ -139,7 +141,7 @@ void CheckNewEntries()
    if(signal == 0) return;
 
    // Execution
-   PrintFormat("[SIGNAL] Strategy Selected: %s", stratName);
+   if(!g_isOptimizing) PrintFormat("[SIGNAL] Strategy Selected: %s", stratName);
    
    long magic = GetNextMagic();
    double volume = LotSize;
@@ -151,7 +153,7 @@ void CheckNewEntries()
    if(signal == 1) success = m_trade.Buy(volume, _Symbol, m_symbol.Ask(), 0, 0, comment);
    else success = m_trade.Sell(volume, _Symbol, m_symbol.Bid(), 0, 0, comment);
    
-   if(success) PrintFormat("[SIGNAL] Entry Executed: %s", comment);
+   if(success && !g_isOptimizing) PrintFormat("[SIGNAL] Entry Executed: %s", comment);
 }
 
 //+------------------------------------------------------------------+
@@ -181,7 +183,7 @@ void ManageLockedSequences()
             else success = m_trade.Buy(reqVol, _Symbol, m_symbol.Ask(), 0, 0, comment);
             
             if(success) {
-               PrintFormat("[HEDGE] Sequence %I64d Locked Symmetrically (Vol: %.2f)", g_sequences[i].magic, reqVol);
+               if(!g_isOptimizing) PrintFormat("[HEDGE] Sequence %I64d Locked Symmetrically (Vol: %.2f)", g_sequences[i].magic, reqVol);
                
                // PRD 4.1: Once locked, all trailing functionality is disabled and exposure must remain invariant.
                // Remove existing StopLoss and TakeProfit from ALL positions in this sequence to prevent accidental closures.
@@ -283,12 +285,12 @@ void ManagePyramiding()
          else success = m_trade.Sell(flooredLots, _Symbol, m_symbol.Bid(), currentSL, 0, comment);
 
          if(success) {
-            PrintFormat("[PYRAMID] Triggered for Magic %I64d: TotalSecured: %.2f, Risk: %.2f, LotSize: %.2f, SL: %.5f", 
+            if(!g_isOptimizing) PrintFormat("[PYRAMID] Triggered for Magic %I64d: TotalSecured: %.2f, Risk: %.2f, LotSize: %.2f, SL: %.5f", 
                         magic, totalSecuredProfit, riskAmount, flooredLots, currentSL);
             g_sequences[i].lastPyramidSL = currentSL;
             TriggerSave();
          } else {
-            PrintFormat("[ERROR] Pyramid Magic %I64d execution failed: %d", magic, GetLastError());
+            if(!g_isOptimizing) PrintFormat("[ERROR] Pyramid Magic %I64d execution failed: %d", magic, GetLastError());
          }
       }
    }
@@ -360,7 +362,7 @@ void PerformSymmetricalTrimming()
    
    if(lotsToClose >= m_symbol.LotsMin()) {
       double cost = lotsToClose * costPerLot;
-      PrintFormat("[TRIM] Symmetrical Trim: Magic %I64d, Lots: %.2f, Cost: %.2f, ExitB: %.5f, ExitS: %.5f", seq.magic, lotsToClose, cost, m_symbol.Bid(), m_symbol.Ask());
+      if(!g_isOptimizing) PrintFormat("[TRIM] Symmetrical Trim: Magic %I64d, Lots: %.2f, Cost: %.2f, ExitB: %.5f, ExitS: %.5f", seq.magic, lotsToClose, cost, m_symbol.Bid(), m_symbol.Ask());
       
       string commentBuy = StringFormat("[%I64d] [TRIM] P:%.2f", seq.magic, -(buyPnLPerLot * lotsToClose));
       string commentSell = StringFormat("[%I64d] [TRIM] P:%.2f", seq.magic, -(sellPnLPerLot * lotsToClose));
@@ -388,7 +390,7 @@ void PerformSymmetricalTrimming()
          }
       }
       
-      PrintFormat("[TRIM] Order Sent: Magic %I64d, Lots: %.2f (Estimated Cost: %.2f)", seq.magic, lotsToClose, cost);
+         if(!g_isOptimizing) PrintFormat("[TRIM] Order Sent: Magic %I64d, Lots: %.2f (Estimated Cost: %.2f)", seq.magic, lotsToClose, cost);
       g_lastTrimTime = TimeCurrent();
       TriggerSave();
    }
@@ -413,7 +415,7 @@ void CapitulationRule()
       }
       if(farthestIdx != -1) {
          long magic = g_sequences[farthestIdx].magic;
-         PrintFormat("[CAPITULATION] Risk Alert! Closing Sequence %I64d.", magic);
+         if(!g_isOptimizing) PrintFormat("[CAPITULATION] Risk Alert! Closing Sequence %I64d.", magic);
          string comment = StringFormat("[%I64d] [LOSS] Capitulation", magic);
          for(int j=PositionsTotal()-1; j>=0; j--) {
             if(m_position.SelectByIndex(j) && m_position.Symbol() == _Symbol) {
@@ -469,12 +471,14 @@ void ManageTrailingSL()
             }
 
             if(!anyFailed) {
-               if(currentSL == 0) {
-                  PrintFormat("[TRADE] Profit Locked: Sequence %I64d SL set at %.5f (Pips: %.1f, TrailPips: %.1f)", 
-                              magic, newSL, pips, TrailingStopPips);
-               } else {
-                  PrintFormat("[TRADE] Trailing Stop updated: %.5f -> %.5f (Sequence %I64d, Pips: %.1f, TrailPips: %.1f)", 
-                              currentSL, newSL, magic, pips, TrailingStopPips);
+               if(!g_isOptimizing) {
+                  if(currentSL == 0) {
+                     PrintFormat("[TRADE] Profit Locked: Sequence %I64d SL set at %.5f (Pips: %.1f, TrailPips: %.1f)", 
+                                 magic, newSL, pips, TrailingStopPips);
+                  } else {
+                     PrintFormat("[TRADE] Trailing Stop updated: %.5f -> %.5f (Sequence %I64d, Pips: %.1f, TrailPips: %.1f)", 
+                                 currentSL, newSL, magic, pips, TrailingStopPips);
+                  }
                }
             }
             break; // Processed this sequence, move to next position in outer loop
@@ -511,14 +515,14 @@ void ReconcileRecentDeals()
                      amountToAdd = net * (KeepProfitPercent / 100.0);
                      double unharvestedAmount = net - amountToAdd;
                      g_unharvestedProfit += unharvestedAmount;
-                     PrintFormat("[TRIM] Target Profit Harvested: Magic %I64d, Net: %.2f, Amount (%.0f%%): +%.2f, Unharvested Added: %.2f, Total Unharvested: %.2f", 
+                     if(!g_isOptimizing) PrintFormat("[TRIM] Target Profit Harvested: Magic %I64d, Net: %.2f, Amount (%.0f%%): +%.2f, Unharvested Added: %.2f, Total Unharvested: %.2f", 
                                  dealMagic, net, KeepProfitPercent, amountToAdd, unharvestedAmount, g_unharvestedProfit);
                   }
                } else if (StringFind(dealComment, "[TRIM]") >= 0) {
                   // Deal generated by Symmetrical Trimming
                   g_profitTally += net;
                   double dealPrice = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
-                  PrintFormat("[TRIM] Realized PnL applied to Tally: Magic %I64d, DealNet: %.2f, New Tally: %.2f, ExitPrice: %.5f", dealMagic, net, g_profitTally, dealPrice);
+                  if(!g_isOptimizing) PrintFormat("[TRIM] Realized PnL applied to Tally: Magic %I64d, DealNet: %.2f, New Tally: %.2f, ExitPrice: %.5f", dealMagic, net, g_profitTally, dealPrice);
                   TriggerSave();
                }
                

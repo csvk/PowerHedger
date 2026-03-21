@@ -125,11 +125,20 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 double OnTester()
 {
    double profit = TesterStatistics(STAT_PROFIT);
-   double dd = TesterStatistics(STAT_EQUITY_DDREL_PERCENT);
+   double dd_percent = TesterStatistics(STAT_EQUITY_DDREL_PERCENT);
+   double trades = TesterStatistics(STAT_TRADES);
    
-   // Avoid division by zero; return absolute profit if no drawdown recorded
-   if(dd <= 0) return profit;
+   if(profit <= 0) return 0;
    
-   // Custom Fitness Metric: Profit / Relative Drawdown %
-   return profit / dd;
+   // Custom Fitness Metric: Drawdown-Weighted Profit
+   // Score = Profit * (1 - DD%)^OptRiskAversion
+   double dd_factor = 1.0 - (dd_percent / 100.0);
+   if (dd_factor <= 0) return 0;
+   
+   double score = profit * MathPow(dd_factor, OptRiskAversion);
+   
+   // Applying penalty for insufficient trade count (statistical insignificance)
+   if(trades < OptMinTrades) score *= 0.1; 
+
+   return score;
 }

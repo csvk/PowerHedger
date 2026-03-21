@@ -180,7 +180,26 @@ void ManageLockedSequences()
             if(g_sequences[i].volBuy > 0) success = m_trade.Sell(reqVol, _Symbol, m_symbol.Bid(), 0, 0, comment);
             else success = m_trade.Buy(reqVol, _Symbol, m_symbol.Ask(), 0, 0, comment);
             
-            if(success) PrintFormat("[HEDGE] Sequence %I64d Locked Symmetrically (Vol: %.2f)", g_sequences[i].magic, reqVol);
+            if(success) {
+               PrintFormat("[HEDGE] Sequence %I64d Locked Symmetrically (Vol: %.2f)", g_sequences[i].magic, reqVol);
+               
+               // PRD 4.1: Once locked, all trailing functionality is disabled and exposure must remain invariant.
+               // Remove existing StopLoss and TakeProfit from ALL positions in this sequence to prevent accidental closures.
+               for(int j=PositionsTotal()-1; j>=0; j--) {
+                  if(m_position.SelectByIndex(j) && m_position.Symbol() == _Symbol && m_position.Magic() == g_sequences[i].magic) {
+                     if(m_position.StopLoss() != 0 || m_position.TakeProfit() != 0) {
+                        m_trade.PositionModify(m_position.Ticket(), 0, 0);
+                     }
+                  }
+               }
+               
+               // Update state immediately to prevent other logic in the same tick (e.g. ManageTrailingSL) from treating it as ACTIVE
+               g_sequences[i].state = SEQ_LOCKED;
+               g_sequences[i].volBuy = (g_sequences[i].volBuy > 0) ? g_sequences[i].volBuy : reqVol;
+               g_sequences[i].volSell = (g_sequences[i].volSell > 0) ? g_sequences[i].volSell : reqVol;
+               
+               TriggerSave();
+            }
          }
       }
    }
@@ -438,11 +457,14 @@ void ManageTrailingSL()
 
             ulong ticket = m_position.Ticket();
             
-            // Sync SL to all unhedged positions of the same magic
+            // Sync SL to all UNHEDGED positions of the same magic that match the active direction
             bool anyFailed = false;
             for(int j=PositionsTotal()-1; j>=0; j--) {
                if(m_position.SelectByIndex(j) && m_position.Symbol() == _Symbol && m_position.Magic() == magic) {
-                  if(!m_trade.PositionModify(m_position.Ticket(), newSL, 0)) anyFailed = true;
+                  // Only modify if it's the correct direction for this active sequence to avoid race conditions with opening hedges
+                  if(m_position.PositionType() == ((pips > 0 && m_position.PositionType() == POSITION_TYPE_BUY) ? POSITION_TYPE_BUY : POSITION_TYPE_SELL)) {
+                     if(!m_trade.PositionModify(m_position.Ticket(), newSL, 0)) anyFailed = true;
+                  }
                }
             }
 

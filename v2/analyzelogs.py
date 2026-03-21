@@ -324,6 +324,7 @@ class TradeAnalyzerV2:
                     vol = max(s['volBuy'], s['volSell'])
                     locked_pairs.append(f"({m},{m}:{vol:.2f})")
             locked_str = ", ".join(locked_pairs)
+            locked_count = len(locked_pairs)
 
             calc_cum_profit = round(deal_balance - self.initial_balance, 2) if self.initial_balance else 0.0
             ea_cum_profit = round(self.last_tally + self.last_unharvested, 2)
@@ -346,6 +347,7 @@ class TradeAnalyzerV2:
                 'Comment': deal['Comment'],
                 'ACTIVE': active_str,
                 'LOCKED': locked_str,
+                'Locked_Count': locked_count,
                 'Seq_State': self.sequences[inferred_magic]['state'] if inferred_magic in self.sequences else "N/A",
                 'Seq_MidPrice': round(self.sequences[inferred_magic]['midPrice'], 5) if inferred_magic in self.sequences else 0,
                 'Tally': self.last_tally,

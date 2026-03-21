@@ -156,4 +156,9 @@ input double          S3BBDeviations    = 2.0;     // BB Deviations
 input ENUM_BB_TREND_RULE S3BBRule       = BB_AVOID_EXTREME_TREND; // BB Rule
 
 
+//--- Optimization Parameters (PRD 7.3)
+input group "Optimization (Custom Fitness)"
+input double   OptRiskAversion      = 8.0;       // Optimization: Risk Aversion (Penalty Exponent)
+input int      OptMinTrades         = 30;        // Optimization: Min Trades Threshold (Penalty if below)
+
 #endif // _INPUTS_MQH_

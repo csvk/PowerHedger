@@ -6,6 +6,7 @@
 /*
    Expert Advisor: PowerHedger v2
    Description: Symmetrical Sequence Isolation & Trimming.
+   PRD Section 8: Detailed annotations and alignment with product requirements.
 */
 
 #property copyright "Copyright 2026, Souvik Chanda"
@@ -26,11 +27,11 @@
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // Initialize symbol
+   // PRD Section 1: Symbol initialization
    if(!m_symbol.Name(_Symbol)) return(INIT_FAILED);
    m_symbol.RefreshRates();
    
-   // Setup persistence
+   // PRD Section 6: Setup persistence (BaseMagicNumber used as file root)
    g_fileName = IntegerToString(BaseMagicNumber) + ".json";
    LoadState();
    
@@ -40,7 +41,8 @@ int OnInit()
       if(total > 0) g_lastProcessedDeal = HistoryDealGetTicket(total - 1);
    }
    
-   // Initial indicators
+   // PRD Section 7.1: Handle Caching
+   // Indicators are initialized once during EA startup to maximize genetic optimization speed.
    if(!InitIndicators()) return(INIT_FAILED);
    
    CalculateBalances();
@@ -116,12 +118,18 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 }
 
 //+------------------------------------------------------------------+
-//| Tester Metric                                                    |
+//| PRD 7.3: Custom Optimization Metric                              |
+//| Returns the ratio of Total Profit to Relative Equity Drawdown.   |
+//| Higher values indicate better risk-adjusted performance.         |
 //+------------------------------------------------------------------+
 double OnTester()
 {
    double profit = TesterStatistics(STAT_PROFIT);
    double dd = TesterStatistics(STAT_EQUITY_DDREL_PERCENT);
+   
+   // Avoid division by zero; return absolute profit if no drawdown recorded
    if(dd <= 0) return profit;
+   
+   // Custom Fitness Metric: Profit / Relative Drawdown %
    return profit / dd;
 }

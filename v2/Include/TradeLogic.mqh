@@ -9,7 +9,8 @@
 /*
    Component: Trade Logic (v2)
    Description: Symmetrical Sequence Isolation, Manual Adoption, and Trimming.
-   PRD Sections: 2 (Core Logic), 3 (Sequence Management), 4 (Hedging), 5 (Trimming)
+   PRD Section 8: Requirement for line-by-line / block-level annotations.
+   Aligns with Sections: 2 (Core Logic), 3 (Sequence Management), 4 (Hedging), 5 (Trimming)
 */
 
 #include "Globals.mqh"
@@ -52,8 +53,9 @@ bool CloseWithComment(ulong ticket, double volume, string comment, long magic)
 }
 
 //+------------------------------------------------------------------+
-//| PRD 3.1: Manual Trade Adoption                                   |
-//| Scans for Magic 0 trades and assigns them a Sequence ID.         |
+//| PRD 3.1 & 6: Manual Trade Adoption                               |
+//| Scans for Magic 0 trades on the same symbol and assigns a unique |
+//| Sequence ID to bring them under EA management (Trailing/Hedging).|
 //+------------------------------------------------------------------+
 void AdoptManualTrades()
 {
@@ -83,6 +85,7 @@ void AdoptManualTrades()
 
 //+------------------------------------------------------------------+
 //| PRD 2.1: Entry Logic - One-Active-Trade Rule                     |
+//| Multi-strategy evaluation with Priority and Session enforcement. |
 //+------------------------------------------------------------------+
 void CheckNewEntries()
 {
@@ -151,6 +154,11 @@ void CheckNewEntries()
    if(success) PrintFormat("[SIGNAL] Entry Executed: %s", comment);
 }
 
+//+------------------------------------------------------------------+
+//| PRD 4.1: Symmetrical Hedging                                     |
+//| Monitors active sequences for the HedgePips breach to trigger    |
+//| a perfectly balanced (net delta zero) protective hedge.          |
+//+------------------------------------------------------------------+
 void ManageLockedSequences()
 {
    for(int i=0; i<ArraySize(g_sequences); i++) {
@@ -270,8 +278,9 @@ void ManagePyramiding()
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
-//| PRD 5.1: Symmetrical Trimming Logic                              |
-//| Uses ProfitTally to close equal volumes of Buy/Sell legs.        |
+//| PRD 5.2: Symmetrical Trimming Algorithm                           |
+//| Closes equal volumes from the Buy and Sell legs of the farthest  |
+//| Mid-Price Locked Sequence using funds from the ProfitTally.      |
 //+------------------------------------------------------------------+
 void PerformSymmetricalTrimming()
 {
@@ -453,7 +462,9 @@ void ManageTrailingSL()
 }
 
 //+------------------------------------------------------------------+
-//| PRD 5.1: Real-time Profit Recon                                  |
+//| PRD 5.2: Real-time Profit Reconciliation                         |
+//| Scans history deals to harvest profit for the Tally fund or      |
+//| reconcile actual net realized loss from trimming operations.     |
 //+------------------------------------------------------------------+
 void ReconcileRecentDeals()
 {

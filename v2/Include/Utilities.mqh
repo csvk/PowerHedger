@@ -9,6 +9,7 @@
 /*
    Component: Utilities (v2)
    Description: Mathematical helpers, indicator management, and signal logic.
+   PRD Section 8: Detailed annotations provided to align with requirements.
 */
 
 #include "Globals.mqh"
@@ -121,10 +122,14 @@ bool HasLockedSequences()
 }
 
 //+------------------------------------------------------------------+
-//| PRD 1.1: Session Filters                                         |
+//| PRD 1.1 & 7.2: Session Filters                                   |
+//| Multi-session UTC-based activation logic.                        |
+//| Requirement 7.2: Uses TimeTradeServer() in Strategy Tester to    |
+//| align with tester's internal clock for accurate backtesting.     |
 //+------------------------------------------------------------------+
 bool IsSessionActive()
 {
+   // PRD 7.2: Time Synchronization
    datetime now = (MQLInfoInteger(MQL_TESTER)) ? TimeTradeServer() : TimeCurrent();
    MqlDateTime dt; TimeToStruct(now, dt);
    if(dt.day_of_week == 0 || dt.day_of_week == 6) return false;
@@ -139,7 +144,8 @@ bool IsSessionActive()
 }
 
 //+------------------------------------------------------------------+
-//| Indicator Management                                             |
+//| Helper: Enum Decoder for EMA Periods                             |
+//| PRD Section 4: Derives individual EMA values from a single Enum.  |
 //+------------------------------------------------------------------+
 void GetEMAPeriods(ENUM_EMA_SETS set, int &fast, int &mid, int &slow) {
    switch(set) {
@@ -150,6 +156,11 @@ void GetEMAPeriods(ENUM_EMA_SETS set, int &fast, int &mid, int &slow) {
    }
 }
 
+//+------------------------------------------------------------------+
+//| PRD 2.4 & 7.1: Indicator Initialization                          |
+//| Requirement 7.1: Handles are created once and cached to avoid    |
+//| per-tick overhead during genetic optimization.                   |
+//+------------------------------------------------------------------+
 bool InitIndicators() {
    if(S1UseRSI) g_hRSI1 = iRSI(_Symbol, (ENUM_TIMEFRAMES)S1RSITimeframe, S1RSIPeriod, PRICE_CLOSE);
    if(S1UseEMA) { int f,m,s; GetEMAPeriods(S1EMAPeriods, f,m,s); g_hEMA1_F = iMA(_Symbol, (ENUM_TIMEFRAMES)S1EMATimeframe, f, 0, MODE_EMA, PRICE_CLOSE); g_hEMA1_M = iMA(_Symbol, (ENUM_TIMEFRAMES)S1EMATimeframe, m, 0, MODE_EMA, PRICE_CLOSE); g_hEMA1_S = iMA(_Symbol, (ENUM_TIMEFRAMES)S1EMATimeframe, s, 0, MODE_EMA, PRICE_CLOSE); }

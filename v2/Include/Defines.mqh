@@ -86,8 +86,8 @@ enum ENUM_ADX_TREND_RULE
 enum ENUM_BB_TREND_RULE
 {
    BB_AVOID_EXTREME_TREND, // Avoid Extreme Trend
-   BB_AGAINST_TREND,       // Trade against Trend
-   BB_EXTREME_ONLY         // Trade only at Extreme Trend (Breakout)
+   BB_EXTREME_ONLY,        // Trade only at Extreme Trend (Breakout)
+   BB_AGAINST_TREND       // Trade against Trend
 };
 
 //--- Strategy Prioritization (PRD 2.2)

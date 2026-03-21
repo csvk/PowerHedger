@@ -76,6 +76,8 @@ void TriggerSave() { g_isStateDirty = true; }
 //+------------------------------------------------------------------+
 void SaveStateIfNeeded()
 {
+   if(MQLInfoInteger(MQL_OPTIMIZATION)) return; // PRD 7.1: Disable I/O during optimization
+   
    if(g_isStateDirty) {
       SaveState();
       string seqList = "";

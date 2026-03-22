@@ -496,7 +496,16 @@ void ReconcileRecentDeals()
 {
    if(HistorySelect(0, TimeCurrent())) {
       int total = HistoryDealsTotal();
-      for(int i = 0; i < total; i++) {
+      int startIndex = 0;
+      if(g_lastProcessedDeal > 0) {
+         for(int i = total - 1; i >= 0; i--) {
+            if(HistoryDealGetTicket(i) == g_lastProcessedDeal) {
+               startIndex = i + 1;
+               break;
+            }
+         }
+      }
+      for(int i = startIndex; i < total; i++) {
          ulong dealTicket = HistoryDealGetTicket(i);
          if(dealTicket > g_lastProcessedDeal) {
             long entry = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);

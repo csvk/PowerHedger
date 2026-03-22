@@ -75,8 +75,12 @@ void OnTick()
    if(!m_symbol.RefreshRates()) return;
 
    // 2. Sync State (Only if necessary or periodic)
-   ReconcileRecentDeals();
-   CalculateBalances();
+   static int lastPositionsTotal = -1;
+   int currentPositions = PositionsTotal();
+   if(currentPositions != lastPositionsTotal || g_isStateDirty) {
+      CalculateBalances();
+      lastPositionsTotal = currentPositions;
+   }
    
    // 3. Adopt Manual Trades (Skip during optimization if not required)
    if(!g_isOptimizing) AdoptManualTrades();

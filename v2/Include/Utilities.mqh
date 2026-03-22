@@ -71,8 +71,8 @@ void CalculateBalances()
          for(int j=0; j<ArraySize(g_sequences); j++) { if(g_sequences[j].magic == magic) { seqIdx = j; break; } }
          if(seqIdx == -1) {
             seqIdx = ArraySize(g_sequences);
-            ArrayResize(g_sequences, seqIdx + 1);
-            ArrayResize(calcs, seqIdx + 1);
+            ArrayResize(g_sequences, seqIdx + 1, 10);
+            ArrayResize(calcs, seqIdx + 1, 10);
             g_sequences[seqIdx].magic = magic;
             g_sequences[seqIdx].volBuy = 0; 
             g_sequences[seqIdx].volSell = 0; 

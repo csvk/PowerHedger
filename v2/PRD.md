@@ -171,10 +171,14 @@ To facilitate efficient and safe genetic optimization in MT5, the EA must adhere
 ### 7.3 Custom Optimization Metrics
 - The EA should implement the `OnTester()` handler to provide a custom fitness metric (e.g., Profit / Relative Drawdown) for selection in the Strategy Tester.
 
-### 7.4 Loop & Traversal Optimization
+### 7.4 Execution & Loop Optimization
 - **O(1) History Scanning**: Avoid O(N²) loops over `HistoryDealsTotal()` on every tick. Searching backwards to locate `g_lastProcessedDeal` and iterating forward ensures O(1) constant time scaling.
-- **State Recalculation Gates**: Prevent unconditional O(N) execution of massive functions like `CalculateBalances()` inside `OnTick()`. Use an integer tracker like `PositionsTotal() != lastPositionsTotal` to bypass looping when open positions haven't changed.
-- **Array Resizing Pre-allocation**: Always assign a `reserve_size` parameter to `ArrayResize()` (e.g. `ArrayResize(arr, size, 10)`) when dynamically managing sequence arrays in active loops to bypass aggressive OS memory reallocation overhead.
+- **Bounded History Fetching**: Restrict `HistorySelect()` calls to recent bounds (e.g., last 7 days) rather than extracting from `0` (account inception). Unbounded history fetching scales quadratically and severely slows down long genetic optimizations.
+- **Environment Context Caching**: Minimize terminal runtime polling like `MQLInfoInteger()` or `TimeToStruct()` inside tight loops. Pre-cache environment states into global variables (e.g., `g_isOptimizing`) and use conditional rotation caches (e.g., updating session state only when the hour rotates) to bypass native overhead.
+- **String Parsing & Formatting Suppression**: Avoid executing heavy string formatting functions (`StringFormat`) or concatenations during evaluations run in `MQL_OPTIMIZATION`. Wrap visual logs in execution blockers to eliminate unnecessary memory allocation overhead natively.
+- **Event Bypass**: Consolidate redundant structural operations. Delegate synchronous history polling to precise transaction triggers like `OnTradeTransaction(TRADE_TRANSACTION_DEAL_ADD)` instead of duplicating calls ambiguously inside `OnTrade`.
+- **State Recalculation Gates**: Prevent unconditional O(N) execution of functions like `CalculateBalances()` inside `OnTick()`. Use trackers like `PositionsTotal() != lastPositionsTotal` to bypass loops when unneeded.
+- **Array Resizing Pre-allocation**: Assign a `reserve_size` parameter to `ArrayResize()` (e.g., `ArrayResize(arr, size, 10)`) when dynamically managing arrays in active loops to bypass memory reallocation stalls.
 
 ## 8. Coding Standards & Documentation
 

@@ -95,8 +95,8 @@ Systematically generate profit by trimming the outside boundaries of the hedge u
 
 ### 3.2 Profit Trimming Mechanics
 
-Profits from closed positions are distributed according to the `KeepProfitPercent` attribute.
-- **Pocketed Profit**: `Total Booked Profit * KeepProfitPercent`.
+Profits from closed positions are distributed according to the `HarvestsProfitPercent` attribute.
+- **Pocketed Profit**: `Total Booked Profit * HarvestsProfitPercent`.
 - **Trim Amount**: The remainder is used to partially close (trim) the open losing positions.
 - **Farthest First**: Trimming always starts from the trade with the farthest entry price from the current market price.
 - **Trimming Guard**: Trimming only applies to losing positions where the entry price is at least `HedgePips` away from the current market price.
@@ -106,7 +106,7 @@ Profits from closed positions are distributed according to the `KeepProfitPercen
 
 - **Proactive Risk Reduction**: Trims are executed even before a winning trade is fully closed.
 - **Activation**: Once `LockProfitPips` is reached, a theoretical profit is calculated based on the current trailing stop loss level.
-- **Proactive Trim**: Apply the `KeepProfitPercent` rule to this theoretical profit and immediately trim the farthest loss positions using the comment `Intermediate Trim`.
+- **Proactive Trim**: Apply the `HarvestsProfitPercent` rule to this theoretical profit and immediately trim the farthest loss positions using the comment `Intermediate Trim`.
 - **Incremental Trimming**: After the initial intermediate trim, subsequent trims are triggered only when the Trailing Stop Loss moves by at least the value of `IntermediateTrimPips`.
 - **Excess Profit Reconciliation**: Upon actual closure, if `Actual Booked Profit > Theoretical Profit Used`, the excess is processed through the trimming logic again using the comment `Trim`.
 
@@ -180,7 +180,7 @@ Instead of individual inputs, EMA periods are driven by a single `EMAPeriods` En
 #### Group: Trade Management & Trimming
 - **LockProfitPips (Double)**: Profit level to trigger trailing and theoretical trimming.
 - **TrailingStopPips (Double)**: Distance to trail price.
-- **KeepProfitPercent (Double 0.0-1.0)**: Ratio of profit to retain vs. use for trimming.
+- **HarvestsProfitPercent (Double 0.0-1.0)**: Ratio of profit to retain vs. use for trimming.
 - **IntermediateTrimPips (Double)**: Trailing distance required to trigger subsequent intermediate trims.
 - **TrailingHedgePips (Double)**: Dedicated distance for post-trim trailing hedges.
 - **SqueezePips (Double)**: Distance used to trail the Post-Trim Hedge Price Point.

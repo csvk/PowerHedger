@@ -397,12 +397,12 @@ void ManageOpenPositions()
                   //--- Calculate profit in currency using points (consistent with Section 3.2)
                   double actLockedPoints = actLockedPips * 10; 
                   double profit = actLockedPoints * m_position.Volume() * m_symbol.TickValue();
-                  double totalTrimGoal = profit * (1.0 - KeepProfitPercent);
+                  double totalTrimGoal = profit * (1.0 - HarvestsProfitPercent);
                   double incrementalTrim = totalTrimGoal - GetTrimmedAmount(winTicket);
 
                   if(incrementalTrim > 0) {
                      PrintFormat("[DECISION] Intermediate Trim triggered: Ticket %d has locked %.1f pips (Profit: %.2f, MinTrim: %.1f). Applying risk reduction (Goal: %.2f, KeepProfitPct: %.1f%%).", 
-                                 winTicket, actLockedPips, profit, IntermediateTrimPips, incrementalTrim, KeepProfitPercent * 100);
+                                 winTicket, actLockedPips, profit, IntermediateTrimPips, incrementalTrim, HarvestsProfitPercent * 100);
                      TrimPositions(incrementalTrim, "Intermediate Trim");
                      SetTrimData(winTicket, totalTrimGoal, actLockedPips);
                   }
@@ -522,7 +522,7 @@ void ProcessFinalClosure(ulong ticket, double finalProfit, ENUM_POSITION_TYPE po
    
    //--- 2. CALCULATE: Determine remaining profit to be used for trimming (PRD 3.3 excess reconciliation)
    double previouslyTrimmed = GetTrimmedAmount(ticket);
-   double totalTrimAmount = finalProfit * (1.0 - KeepProfitPercent);
+   double totalTrimAmount = finalProfit * (1.0 - HarvestsProfitPercent);
    double incrementalTrim = totalTrimAmount - previouslyTrimmed;
    
    //--- 2. EXECUTE TRIM: Apply residual profit to losing trades BEFORE establishing new hedge point

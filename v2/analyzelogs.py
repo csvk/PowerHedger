@@ -272,7 +272,7 @@ class TradeAnalyzerV2:
                             i += 1
                     
                     # PRD 5.1: Real-time Profit Recon (Match EA Logic)
-                    keep_percent = float(self.inputs.get('KeepProfitPercent', 50.0))
+                    keep_percent = float(self.inputs.get('HarvestsProfitPercent', 50.0))
                     amount_to_add = 0.0
                     
                     locked_exists = any(s['state'] == 'LOCKED' for s in self.sequences.values())

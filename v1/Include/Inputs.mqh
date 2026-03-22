@@ -27,7 +27,7 @@ input ENUM_OUTSIDE_ALLOWED OutsideAllowed = OUTSIDE_NO; // Allow Signal entries 
 input group "Trade Management & Trimming"
 input double   LockProfitPips       = 10.0;      // Lock Profit Pips
 input double   TrailingStopPips     = 5.0;       // Trailing Stop Pips
-input double   KeepProfitPercent    = 0.2;       // Keep Profit Percent
+input double   HarvestsProfitPercent = 0.2;       // Keep Profit Percent
 input double   IntermediateTrimPips = 10.0;      // Intermediate Trim Pips
 input double   TrailingHedgePips    = 30.0;      // Trailing Hedge Pips
 input double   SqueezePips          = 1.0;       // Trailing Squeeze Pips

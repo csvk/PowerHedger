@@ -27,7 +27,7 @@ input double   HedgePips            = 30.0;      // Hedge Pips (Symmetrical Trig
 //--- PRD 5.1: Group - Trade Management & Trimming
 input group "Trade Management & Trimming"
 input double   LockProfitPips       = 10.0;      // Lock Profit Pips (Activate Trailing SL - Relative to HedgePips)
-input double   KeepProfitPercent    = 50.0;      // Keep Profit Percent (Trimming Fund portion)
+input double   HarvestsProfitPercent = 50.0;      // Harvests Profit Percent (Trimming Fund portion)
 input double   TrailingStopPips     = 5.0;       // Trailing Stop Pips
 
 //--- PRD 5.4: Group - Pyramiding Positions

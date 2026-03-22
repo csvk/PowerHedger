@@ -54,7 +54,7 @@ void CalculateBalances()
          bool isManaged = false;
          
          if(magic >= BaseMagicNumber && magic < BaseMagicNumber + 100000) isManaged = true;
-         else {
+         else if(!g_isOptimizing) {
             for(int j=0; j<ArraySize(g_manualMaps); j++) {
                if(m_position.Ticket() == g_manualMaps[j].ticket) { magic = g_manualMaps[j].assignedMagic; isManaged = true; break; }
             }
@@ -265,6 +265,7 @@ int GetStrategySignal(int sNum, string &explanation) {
 
          if(!g_isOptimizing) rsiStr = StringFormat("- RSI (%s) : %.1f %s %.1f : %s", GetRSIRuleName(rsiRule), r[1], (r[1]>th?">":"<"), th, GetSignalName(rsiRes));
       } else { rsiRes=IND_NEUTRAL; if(!g_isOptimizing) rsiStr="- RSI: Error copying buffer"; }
+      if(rsiRes == IND_NEUTRAL && g_isOptimizing) return 0; // Short-circuit
    }
    
    // 2. EMA
@@ -288,6 +289,7 @@ int GetStrategySignal(int sNum, string &explanation) {
             emaStr = StringFormat("- EMA (%s) : %s : %s", GetEMARuleName(emaRule), vals, GetSignalName(emaRes));
          }
       } else { emaRes=IND_NEUTRAL; if(!g_isOptimizing) emaStr="- EMA: Error copying buffer"; }
+      if(emaRes == IND_NEUTRAL && g_isOptimizing) return 0; // Short-circuit
    }
    
    // 3. ADX
@@ -323,6 +325,7 @@ int GetStrategySignal(int sNum, string &explanation) {
             adxStr = StringFormat("- ADX (%s) : %s : %s", GetADXRuleName(adxRule), vals, GetSignalName(adxRes));
          }
       } else { adxRes=IND_NEUTRAL; if(!g_isOptimizing) adxStr="- ADX: Error copying buffer"; }
+      if(adxRes == IND_NEUTRAL && g_isOptimizing) return 0; // Short-circuit
    }
    
    // 4. BB
@@ -346,6 +349,7 @@ int GetStrategySignal(int sNum, string &explanation) {
             bbStr = StringFormat("- BB (%s) : %s : %s", GetBBRuleName(bbRule), prce, GetSignalName(bbRes));
          }
       } else { bbRes=IND_NEUTRAL; if(!g_isOptimizing) bbStr="- BB: Error copying buffer"; }
+      if(bbRes == IND_NEUTRAL && g_isOptimizing) return 0; // Short-circuit
    }
    
    // 5. Universal Alignment Policy

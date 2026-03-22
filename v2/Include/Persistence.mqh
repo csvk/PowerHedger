@@ -95,6 +95,7 @@ void SaveStateIfNeeded()
 //+------------------------------------------------------------------+
 void LoadState()
 {
+   if(g_isTester) return; // Optimization: Skip disk lookup and regex parsing during tester/optimization
    CFileTxt file;
    int flags = FILE_READ;
    if(!g_isTester) flags |= FILE_COMMON;

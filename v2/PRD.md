@@ -179,6 +179,10 @@ To facilitate efficient and safe genetic optimization in MT5, the EA must adhere
 - **Event Bypass**: Consolidate redundant structural operations. Delegate synchronous history polling to precise transaction triggers like `OnTradeTransaction(TRADE_TRANSACTION_DEAL_ADD)` instead of duplicating calls ambiguously inside `OnTrade`.
 - **State Recalculation Gates**: Prevent unconditional O(N) execution of functions like `CalculateBalances()` inside `OnTick()`. Use trackers like `PositionsTotal() != lastPositionsTotal` to bypass loops when unneeded.
 - **Array Resizing Pre-allocation**: Assign a `reserve_size` parameter to `ArrayResize()` (e.g., `ArrayResize(arr, size, 10)`) when dynamically managing arrays in active loops to bypass memory reallocation stalls.
+- **Logic Short-Circuiting**: Extinguish redundant execution paths early. For example, if a high-priority strategy yields a valid signal, `break` the strategy evaluation loop to prevent unnecessary indicator calls for lower priorities. Similarly, immediately exit indicator evaluation pipelines if a critical indicator yields a blocking state (`IND_NEUTRAL`) during optimization.
+- **Micro-Loop Avoidance**: Prevent unnecessary iteration over the large `PositionsTotal()` array or configuration arrays by gating them with O(1) checks (e.g., exiting `ManageTrailingSL` immediately if `!IsActiveTradePresent()` or skipping `g_manualMaps` array parsing during optimization).
+- **Disk I/O Bypass**: Hard-block any local file operations like `CFileTxt::Open` and heavy JSON regex parsing during Strategy Tester and Genetic Optimization initialization (`OnInit`) to save fixed startup overhead per optimization pass.
+- **String Operation Caching**: Substring matching functions like `StringFind` must not be repeated. Evaluate strings once, cache them as execution flags (`bool`), and reuse them across conditional logic blocks.
 
 ## 8. Coding Standards & Documentation
 

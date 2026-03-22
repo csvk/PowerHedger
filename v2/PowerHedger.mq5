@@ -107,8 +107,9 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnTrade()
 {
-   ReconcileRecentDeals();
-   CalculateBalances();
+   // Redundant: Handled synchronously by OnTradeTransaction(TRADE_TRANSACTION_DEAL_ADD)
+   // ReconcileRecentDeals();
+   // CalculateBalances();
 }
 
 //+------------------------------------------------------------------+

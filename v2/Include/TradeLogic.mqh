@@ -494,7 +494,10 @@ void ManageTrailingSL()
 //+------------------------------------------------------------------+
 void ReconcileRecentDeals()
 {
-   if(HistorySelect(0, TimeCurrent())) {
+   datetime now = TimeCurrent();
+   datetime start = (now > 86400 * 7) ? now - 86400 * 7 : 0;
+   
+   if(HistorySelect(start, now)) {
       int total = HistoryDealsTotal();
       int startIndex = 0;
       if(g_lastProcessedDeal > 0) {

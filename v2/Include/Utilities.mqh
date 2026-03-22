@@ -138,17 +138,32 @@ bool HasLockedSequences()
 //+------------------------------------------------------------------+
 bool IsSessionActive()
 {
+   static int lastCalculatedHour = -1;
+   static int lastCalculatedDay = -1;
+   static bool lastResult = false;
+   
    // PRD 7.2: Time Synchronization
-   datetime now = (MQLInfoInteger(MQL_TESTER)) ? TimeTradeServer() : TimeCurrent();
+   datetime now = g_isTester ? TimeTradeServer() : TimeCurrent();
    MqlDateTime dt; TimeToStruct(now, dt);
-   if(dt.day_of_week == 0 || dt.day_of_week == 6) return false;
-   if(dt.day_of_week == 1 && !MondayActive) return false;
-   if(dt.day_of_week == 5 && !FridayActive) return false;
+   
+   if(dt.hour == lastCalculatedHour && dt.day_of_year == lastCalculatedDay) {
+      return lastResult;
+   }
+   
+   lastCalculatedHour = dt.hour;
+   lastCalculatedDay = dt.day_of_year;
+   
+   if(dt.day_of_week == 0 || dt.day_of_week == 6) { lastResult = false; return false; }
+   if(dt.day_of_week == 1 && !MondayActive) { lastResult = false; return false; }
+   if(dt.day_of_week == 5 && !FridayActive) { lastResult = false; return false; }
+   
    int hour = dt.hour;
-   if(SydneyActive && (hour >= 22 || hour < 7)) return true;
-   if(TokyoActive && (hour >= 0 && hour < 9)) return true;
-   if(LondonActive && (hour >= 8 && hour < 17)) return true;
-   if(NewYorkActive && (hour >= 13 && hour < 22)) return true;
+   if(SydneyActive && (hour >= 22 || hour < 7)) { lastResult = true; return true; }
+   if(TokyoActive && (hour >= 0 && hour < 9)) { lastResult = true; return true; }
+   if(LondonActive && (hour >= 8 && hour < 17)) { lastResult = true; return true; }
+   if(NewYorkActive && (hour >= 13 && hour < 22)) { lastResult = true; return true; }
+   
+   lastResult = false;
    return false;
 }
 
@@ -248,8 +263,8 @@ int GetStrategySignal(int sNum, string &explanation) {
          else if(rsiRes == IND_SELL) th = (rsiRule == RSI_AGAINST_TREND) ? rsiSell : rsiBuy;
          else th = (r[1] > 50) ? rsiSell : rsiBuy;
 
-         rsiStr = StringFormat("- RSI (%s) : %.1f %s %.1f : %s", GetRSIRuleName(rsiRule), r[1], (r[1]>th?">":"<"), th, GetSignalName(rsiRes));
-      } else { rsiRes=IND_NEUTRAL; rsiStr="- RSI: Error copying buffer"; }
+         if(!g_isOptimizing) rsiStr = StringFormat("- RSI (%s) : %.1f %s %.1f : %s", GetRSIRuleName(rsiRule), r[1], (r[1]>th?">":"<"), th, GetSignalName(rsiRes));
+      } else { rsiRes=IND_NEUTRAL; if(!g_isOptimizing) rsiStr="- RSI: Error copying buffer"; }
    }
    
    // 2. EMA
@@ -259,7 +274,6 @@ int GetStrategySignal(int sNum, string &explanation) {
          bool bull = (f[0]>m[0] && m[0]>s[0]); bool bear = (f[0]<m[0] && m[0]<s[0]);
          string rf = (f[0]>m[0])?">":(f[0]<m[0])?"<":"=";
          string rm = (m[0]>s[0])?">":(m[0]<s[0])?"<":"=";
-         string vals = StringFormat("F(%.5f) %s M(%.5f) %s S(%.5f)", f[0], rf, m[0], rm, s[0]);
          
          if(emaRule == EMA_WITH_TREND) {
             if(bull) emaRes=IND_BUY; else if(bear) emaRes=IND_SELL; else emaRes=IND_NEUTRAL;
@@ -268,8 +282,12 @@ int GetStrategySignal(int sNum, string &explanation) {
          } else if(emaRule == EMA_RANGING) {
             if(!bull && !bear) emaRes=IND_PASS; else emaRes=IND_NEUTRAL;
          }
-         emaStr = StringFormat("- EMA (%s) : %s : %s", GetEMARuleName(emaRule), vals, GetSignalName(emaRes));
-      } else { emaRes=IND_NEUTRAL; emaStr="- EMA: Error copying buffer"; }
+         
+         if(!g_isOptimizing) {
+            string vals = StringFormat("F(%.5f) %s M(%.5f) %s S(%.5f)", f[0], rf, m[0], rm, s[0]);
+            emaStr = StringFormat("- EMA (%s) : %s : %s", GetEMARuleName(emaRule), vals, GetSignalName(emaRes));
+         }
+      } else { emaRes=IND_NEUTRAL; if(!g_isOptimizing) emaStr="- EMA: Error copying buffer"; }
    }
    
    // 3. ADX
@@ -287,7 +305,6 @@ int GetStrategySignal(int sNum, string &explanation) {
          
          string rADX = (a[0]>thVal)?">":(a[0]<thVal)?"<":"=";
          string rDI = (p[0]>mn[0])?">":(p[0]<mn[0])?"<":"=";
-         string vals = StringFormat("%.1f %s %.1f (%s) (DI+ %.1f %s DI- %.1f)", a[0], rADX, thVal, thType, p[0], rDI, mn[0]);
          
          if(adxRule == ADX_WITH_TREND) {
             if(a[0]>trendLvl) { if(p[0]>mn[0]) adxRes=IND_BUY; else adxRes=IND_SELL; } else adxRes=IND_NEUTRAL;
@@ -300,8 +317,12 @@ int GetStrategySignal(int sNum, string &explanation) {
          } else if(adxRule == ADX_EXTREME_ONLY) {
             if(a[0]>=extremeLvl) { if(p[0]>mn[0]) adxRes=IND_BUY; else adxRes=IND_SELL; } else adxRes=IND_NEUTRAL;
          }
-         adxStr = StringFormat("- ADX (%s) : %s : %s", GetADXRuleName(adxRule), vals, GetSignalName(adxRes));
-      } else { adxRes=IND_NEUTRAL; adxStr="- ADX: Error copying buffer"; }
+         
+         if(!g_isOptimizing) {
+            string vals = StringFormat("%.1f %s %.1f (%s) (DI+ %.1f %s DI- %.1f)", a[0], rADX, thVal, thType, p[0], rDI, mn[0]);
+            adxStr = StringFormat("- ADX (%s) : %s : %s", GetADXRuleName(adxRule), vals, GetSignalName(adxRes));
+         }
+      } else { adxRes=IND_NEUTRAL; if(!g_isOptimizing) adxStr="- ADX: Error copying buffer"; }
    }
    
    // 4. BB
@@ -311,7 +332,6 @@ int GetStrategySignal(int sNum, string &explanation) {
          double ask = m_symbol.Ask(); double bid = m_symbol.Bid(); double mid = (ask+bid)/2.0;
          string rL = (mid > l[0])?">":(mid < l[0])?"<":"=";
          string rU = (mid < u[0])?"<":(mid > u[0])?">":"=";
-         string prce = StringFormat("L(%.5f) %s Price(%.5f) %s U(%.5f)", l[0], rL, mid, rU, u[0]);
          
          if(bbRule == BB_AVOID_EXTREME_TREND) {
             if(bid > l[0] && ask < u[0]) bbRes=IND_PASS; else bbRes=IND_NEUTRAL;
@@ -320,8 +340,12 @@ int GetStrategySignal(int sNum, string &explanation) {
          } else if(bbRule == BB_EXTREME_ONLY) {
             if(ask >= u[0]) bbRes=IND_BUY; else if(bid <= l[0]) bbRes=IND_SELL; else bbRes=IND_NEUTRAL;
          }
-         bbStr = StringFormat("- BB (%s) : %s : %s", GetBBRuleName(bbRule), prce, GetSignalName(bbRes));
-      } else { bbRes=IND_NEUTRAL; bbStr="- BB: Error copying buffer"; }
+         
+         if(!g_isOptimizing) {
+            string prce = StringFormat("L(%.5f) %s Price(%.5f) %s U(%.5f)", l[0], rL, mid, rU, u[0]);
+            bbStr = StringFormat("- BB (%s) : %s : %s", GetBBRuleName(bbRule), prce, GetSignalName(bbRes));
+         }
+      } else { bbRes=IND_NEUTRAL; if(!g_isOptimizing) bbStr="- BB: Error copying buffer"; }
    }
    
    // 5. Universal Alignment Policy

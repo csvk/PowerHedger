@@ -30,12 +30,12 @@
 //+------------------------------------------------------------------+
 void SaveState()
 {
-   if(MQLInfoInteger(MQL_OPTIMIZATION)) return; 
+   if(g_isOptimizing) return; 
    
    CFileTxt file;
    int flags = FILE_WRITE;
    
-   if(!MQLInfoInteger(MQL_TESTER)) flags |= FILE_COMMON; 
+   if(!g_isTester) flags |= FILE_COMMON; 
    
    if(file.Open(g_fileName, flags)) {
       string content = "{";
@@ -76,7 +76,7 @@ void TriggerSave() { g_isStateDirty = true; }
 //+------------------------------------------------------------------+
 void SaveStateIfNeeded()
 {
-   if(MQLInfoInteger(MQL_OPTIMIZATION)) return; // PRD 7.1: Disable I/O during optimization
+   if(g_isOptimizing) return; // PRD 7.1: Disable I/O during optimization
    
    if(g_isStateDirty) {
       SaveState();
@@ -97,7 +97,7 @@ void LoadState()
 {
    CFileTxt file;
    int flags = FILE_READ;
-   if(!MQLInfoInteger(MQL_TESTER)) flags |= FILE_COMMON;
+   if(!g_isTester) flags |= FILE_COMMON;
    
    if(file.Open(g_fileName, flags)) {
       string content = file.ReadString();

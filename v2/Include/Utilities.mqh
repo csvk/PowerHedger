@@ -41,20 +41,24 @@ void CalculateBalances()
       // We don't reset midPrice here because it might be reused if still active
    }
    
-   // Temporary storage for mid-price calculation in one pass
+   // PRD 7.4.14: Static storage for mid-price calculation to prevent heap thrashing
    struct SeqCalc { double entryB, entryS; int countB, countS; };
-   SeqCalc calcs[]; ArrayResize(calcs, ArraySize(g_sequences));
-   for(int i=0; i<ArraySize(calcs); i++) ZeroMemory(calcs[i]);
+   static SeqCalc calcs[100]; // Fixed capacity for max sequences
+   for(int i=0; i<100; i++) ZeroMemory(calcs[i]);
+   
+   ArrayResize(g_activeTickets, 0); // Rebuild ticket cache
+   g_hasActiveSequence = false;
 
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
       if(m_position.SelectByIndex(i) && m_position.Symbol() == _Symbol)
       {
          long magic = m_position.Magic();
-         bool isManaged = false;
+         bool isManaged = (magic >= BaseMagicNumber && magic < BaseMagicNumber + 100000);
          
-         if(magic >= BaseMagicNumber && magic < BaseMagicNumber + 100000) isManaged = true;
-         else if(!g_isOptimizing) {
+         // PRD 7.4.11: Pre-cache tickets for active (unhedged) sequences to bypass O(N) loops later
+         // Optimization: Skip manual loop if magic is standard sequence magic
+         if(!isManaged && !g_isOptimizing) {
             for(int j=0; j<ArraySize(g_manualMaps); j++) {
                if(m_position.Ticket() == g_manualMaps[j].ticket) { magic = g_manualMaps[j].assignedMagic; isManaged = true; break; }
             }
@@ -72,14 +76,13 @@ void CalculateBalances()
          if(seqIdx == -1) {
             seqIdx = ArraySize(g_sequences);
             ArrayResize(g_sequences, seqIdx + 1, 10);
-            ArrayResize(calcs, seqIdx + 1, 10);
+            if(seqIdx < 100) ZeroMemory(calcs[seqIdx]);
             g_sequences[seqIdx].magic = magic;
             g_sequences[seqIdx].volBuy = 0; 
             g_sequences[seqIdx].volSell = 0; 
             g_sequences[seqIdx].midPrice = 0; 
             g_sequences[seqIdx].state = SEQ_ACTIVE;
             g_sequences[seqIdx].lastPyramidSL = 0;
-            ZeroMemory(calcs[seqIdx]);
          }
          
          if(m_position.PositionType() == POSITION_TYPE_BUY) {
@@ -108,18 +111,31 @@ void CalculateBalances()
       } else {
          g_sequences[i].state = SEQ_ACTIVE;
          g_sequences[i].midPrice = (calcs[i].countB > 0) ? (calcs[i].entryB/calcs[i].countB) : (calcs[i].entryS/calcs[i].countS);
+         g_hasActiveSequence = true; // Update PRD 7.4.13 flag
+      }
+   }
+   
+   // PRD 7.4.11: Finalize Ticket Cache based on state determined above
+   for(int i = PositionsTotal() - 1; i >= 0; i--) {
+      if(m_position.SelectByIndex(i) && m_position.Symbol() == _Symbol) {
+         long magic = m_position.Magic(); ulong ticket = m_position.Ticket();
+         if(magic < BaseMagicNumber || magic >= BaseMagicNumber + 100000) {
+            for(int j=0; j<ArraySize(g_manualMaps); j++) if(ticket == g_manualMaps[j].ticket) { magic = g_manualMaps[j].assignedMagic; break; }
+         }
+         for(int j=0; j<ArraySize(g_sequences); j++) {
+            if(g_sequences[j].magic == magic && g_sequences[j].state == SEQ_ACTIVE) {
+               int sz = ArraySize(g_activeTickets);
+               ArrayResize(g_activeTickets, sz + 1);
+               g_activeTickets[sz].ticket = ticket;
+               g_activeTickets[sz].magic = magic;
+               break;
+            }
+         }
       }
    }
 }
 
-//+------------------------------------------------------------------+
-//| PRD 2.1: One-Active-Trade Rule                                   |
-//+------------------------------------------------------------------+
-bool IsActiveTradePresent()
-{
-   for(int i=0; i<ArraySize(g_sequences); i++) { if(g_sequences[i].state == SEQ_ACTIVE) return true; }
-   return false;
-}
+// PRD 2.1: One-Active-Trade Rule - Replaced by g_hasActiveSequence O(1) flag
 
 //+------------------------------------------------------------------+
 //| Helper: Check if ANY sequence is in LOCKED state                 |
@@ -243,38 +259,39 @@ int GetStrategySignal(int sNum, string &explanation) {
    ENUM_IND_SIGNAL rsiRes=IND_PASS, emaRes=IND_PASS, adxRes=IND_PASS, bbRes=IND_PASS;
    string rsiStr="", emaStr="", adxStr="", bbStr="";
    
-   // 1. RSI
-   if(useRSI) {
-      double r[]; int h = (sNum==1)?g_hRSI1:(sNum==2)?g_hRSI2:g_hRSI3;
-      ENUM_RSI_TREND_RULE rsiRule = (sNum==1)?S1RSITrendRule:(sNum==2)?S2RSITrendRule:S3RSITrendRule;
-      
-      if(CopyBuffer(h,0,0,2,r)==2) {
-         if(rsiRule == RSI_AGAINST_TREND) {
-            if(r[0]>=rsiBuy && r[1]<rsiBuy) rsiRes=IND_BUY;
-            else if(r[0]<=rsiSell && r[1]>rsiSell) rsiRes=IND_SELL;
-            else rsiRes=IND_NEUTRAL;
-         } else { // RSI_WITH_TREND
-            if(r[0]<=rsiSell && r[1]>rsiSell) rsiRes=IND_BUY;
-            else if(r[0]>=rsiBuy && r[1]<rsiBuy) rsiRes=IND_SELL;
-            else rsiRes=IND_NEUTRAL;
-         }
-         double th = 0;
-         if(rsiRes == IND_BUY) th = (rsiRule == RSI_AGAINST_TREND) ? rsiBuy : rsiSell;
-         else if(rsiRes == IND_SELL) th = (rsiRule == RSI_AGAINST_TREND) ? rsiSell : rsiBuy;
-         else th = (r[1] > 50) ? rsiSell : rsiBuy;
-
-         if(!g_isOptimizing) rsiStr = StringFormat("- RSI (%s) : %.1f %s %.1f : %s", GetRSIRuleName(rsiRule), r[1], (r[1]>th?">":"<"), th, GetSignalName(rsiRes));
-      } else { rsiRes=IND_NEUTRAL; if(!g_isOptimizing) rsiStr="- RSI: Error copying buffer"; }
-      if(rsiRes == IND_NEUTRAL && g_isOptimizing) return 0; // Short-circuit
-   }
+    // 1. RSI
+    if(useRSI) {
+       double r[2]; // PRD 7.4.12: Stack-based allocation
+       int h = (sNum==1)?g_hRSI1:(sNum==2)?g_hRSI2:g_hRSI3;
+       ENUM_RSI_TREND_RULE rsiRule = (sNum==1)?S1RSITrendRule:(sNum==2)?S2RSITrendRule:S3RSITrendRule;
+       
+       if(CopyBuffer(h,0,0,2,r)==2) {
+          if(rsiRule == RSI_AGAINST_TREND) {
+             if(r[0]>=rsiBuy && r[1]<rsiBuy) rsiRes=IND_BUY;
+             else if(r[0]<=rsiSell && r[1]>rsiSell) rsiRes=IND_SELL;
+             else rsiRes=IND_NEUTRAL;
+          } else { // RSI_WITH_TREND
+             if(r[0]<=rsiSell && r[1]>rsiSell) rsiRes=IND_BUY;
+             else if(r[0]>=rsiBuy && r[1]<rsiBuy) rsiRes=IND_SELL;
+             else rsiRes=IND_NEUTRAL;
+          }
+          
+          if(!g_isOptimizing) {
+             double th = (rsiRes == IND_BUY) ? ((rsiRule == RSI_AGAINST_TREND) ? rsiBuy : rsiSell) :
+                         (rsiRes == IND_SELL) ? ((rsiRule == RSI_AGAINST_TREND) ? rsiSell : rsiBuy) :
+                         ((r[1] > 50) ? rsiSell : rsiBuy);
+             rsiStr = StringFormat("- RSI (%s) : %.1f %s %.1f : %s", GetRSIRuleName(rsiRule), r[1], (r[1]>th?">":"<"), th, GetSignalName(rsiRes));
+          }
+       } else { rsiRes=IND_NEUTRAL; if(!g_isOptimizing) rsiStr="- RSI: Error copying buffer"; }
+       if(rsiRes == IND_NEUTRAL && g_isOptimizing) return 0; // Short-circuit
+    }
    
    // 2. EMA
    if(useEMA) {
-      double f[],m[],s[]; int hf=(sNum==1)?g_hEMA1_F:(sNum==2)?g_hEMA2_F:g_hEMA3_F, hm=(sNum==1)?g_hEMA1_M:(sNum==2)?g_hEMA2_M:g_hEMA3_M, hs=(sNum==1)?g_hEMA1_S:(sNum==2)?g_hEMA2_S:g_hEMA3_S;
+      double f[1], m[1], s[1]; // PRD 7.4.12: Stack-based allocation
+      int hf=(sNum==1)?g_hEMA1_F:(sNum==2)?g_hEMA2_F:g_hEMA3_F, hm=(sNum==1)?g_hEMA1_M:(sNum==2)?g_hEMA2_M:g_hEMA3_M, hs=(sNum==1)?g_hEMA1_S:(sNum==2)?g_hEMA2_S:g_hEMA3_S;
       if(CopyBuffer(hf,0,0,1,f)==1 && CopyBuffer(hm,0,0,1,m)==1 && CopyBuffer(hs,0,0,1,s)==1) {
          bool bull = (f[0]>m[0] && m[0]>s[0]); bool bear = (f[0]<m[0] && m[0]<s[0]);
-         string rf = (f[0]>m[0])?">":(f[0]<m[0])?"<":"=";
-         string rm = (m[0]>s[0])?">":(m[0]<s[0])?"<":"=";
          
          if(emaRule == EMA_WITH_TREND) {
             if(bull) emaRes=IND_BUY; else if(bear) emaRes=IND_SELL; else emaRes=IND_NEUTRAL;
@@ -285,6 +302,8 @@ int GetStrategySignal(int sNum, string &explanation) {
          }
          
          if(!g_isOptimizing) {
+            string rf = (f[0]>m[0])?">":(f[0]<m[0])?"<":"=";
+            string rm = (m[0]>s[0])?">":(m[0]<s[0])?"<":"=";
             string vals = StringFormat("F(%.5f) %s M(%.5f) %s S(%.5f)", f[0], rf, m[0], rm, s[0]);
             emaStr = StringFormat("- EMA (%s) : %s : %s", GetEMARuleName(emaRule), vals, GetSignalName(emaRes));
          }
@@ -294,19 +313,12 @@ int GetStrategySignal(int sNum, string &explanation) {
    
    // 3. ADX
    if(useADX) {
-      double a[],p[],mn[]; int h=(sNum==1)?g_hADX1:(sNum==2)?g_hADX2:g_hADX3;
+      double a[1], p[1], mn[1]; // PRD 7.4.12: Stack-based allocation
+      int h=(sNum==1)?g_hADX1:(sNum==2)?g_hADX2:g_hADX3;
       if(CopyBuffer(h,0,0,1,a)==1 && CopyBuffer(h,1,0,1,p)==1 && CopyBuffer(h,2,0,1,mn)==1) {
          double trendLvl = (sNum==1)?S1ADXTrendLevel:(sNum==2)?S2ADXTrendLevel:S3ADXTrendLevel;
          double extremeLvl = (sNum==1)?S1ADXExtremeLevel:(sNum==2)?S2ADXExtremeLevel:S3ADXExtremeLevel;
          double rangeLvl = (sNum==1)?S1ADXRangeLevel:(sNum==2)?S2ADXRangeLevel:S3ADXRangeLevel;
-         
-         double thVal = 0; string thType = "";
-         if(adxRule==ADX_WITH_TREND || adxRule==ADX_WITH_TREND_AVOID_EXTREME) { thVal = trendLvl; thType = "Trend"; }
-         else if(adxRule==ADX_AGAINST_TREND || adxRule==ADX_EXTREME_ONLY) { thVal = extremeLvl; thType = "Extreme"; }
-         else if(adxRule==ADX_RANGING) { thVal = rangeLvl; thType = "Range"; }
-         
-         string rADX = (a[0]>thVal)?">":(a[0]<thVal)?"<":"=";
-         string rDI = (p[0]>mn[0])?">":(p[0]<mn[0])?"<":"=";
          
          if(adxRule == ADX_WITH_TREND) {
             if(a[0]>trendLvl) { if(p[0]>mn[0]) adxRes=IND_BUY; else adxRes=IND_SELL; } else adxRes=IND_NEUTRAL;
@@ -321,6 +333,12 @@ int GetStrategySignal(int sNum, string &explanation) {
          }
          
          if(!g_isOptimizing) {
+            double thVal = 0; string thType = "";
+            if(adxRule==ADX_WITH_TREND || adxRule==ADX_WITH_TREND_AVOID_EXTREME) { thVal = trendLvl; thType = "Trend"; }
+            else if(adxRule==ADX_AGAINST_TREND || adxRule==ADX_EXTREME_ONLY) { thVal = extremeLvl; thType = "Extreme"; }
+            else if(adxRule==ADX_RANGING) { thVal = rangeLvl; thType = "Range"; }
+            string rADX = (a[0]>thVal)?">":(a[0]<thVal)?"<":"=";
+            string rDI = (p[0]>mn[0])?">":(p[0]<mn[0])?"<":"=";
             string vals = StringFormat("%.1f %s %.1f (%s) (DI+ %.1f %s DI- %.1f)", a[0], rADX, thVal, thType, p[0], rDI, mn[0]);
             adxStr = StringFormat("- ADX (%s) : %s : %s", GetADXRuleName(adxRule), vals, GetSignalName(adxRes));
          }
@@ -330,11 +348,10 @@ int GetStrategySignal(int sNum, string &explanation) {
    
    // 4. BB
    if(useBB) {
-      double u[],l[]; int h=(sNum==1)?g_hBB1:(sNum==2)?g_hBB2:g_hBB3;
+      double u[1], l[1]; // PRD 7.4.12: Stack-based allocation
+      int h=(sNum==1)?g_hBB1:(sNum==2)?g_hBB2:g_hBB3;
       if(CopyBuffer(h,1,0,1,u)==1 && CopyBuffer(h,2,0,1,l)==1) {
          double ask = m_symbol.Ask(); double bid = m_symbol.Bid(); double mid = (ask+bid)/2.0;
-         string rL = (mid > l[0])?">":(mid < l[0])?"<":"=";
-         string rU = (mid < u[0])?"<":(mid > u[0])?">":"=";
          
          if(bbRule == BB_AVOID_EXTREME_TREND) {
             if(bid > l[0] && ask < u[0]) bbRes=IND_PASS; else bbRes=IND_NEUTRAL;
@@ -345,6 +362,8 @@ int GetStrategySignal(int sNum, string &explanation) {
          }
          
          if(!g_isOptimizing) {
+            string rL = (mid > l[0])?">":(mid < l[0])?"<":"=";
+            string rU = (mid < u[0])?"<":(mid > u[0])?">":"=";
             string prce = StringFormat("L(%.5f) %s Price(%.5f) %s U(%.5f)", l[0], rL, mid, rU, u[0]);
             bbStr = StringFormat("- BB (%s) : %s : %s", GetBBRuleName(bbRule), prce, GetSignalName(bbRes));
          }

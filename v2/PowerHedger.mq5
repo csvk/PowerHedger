@@ -50,6 +50,7 @@ int OnInit()
    if(!InitIndicators()) return(INIT_FAILED);
    
    CalculateBalances();
+   g_capitulationLots = MaxLots * 2.0; // PRD 7.4.14
    MathSrand((int)TimeCurrent());
    
    PrintFormat("[INFO] PowerHedger v2 initialized. BaseMagic: %I64d", BaseMagicNumber);
@@ -86,7 +87,7 @@ void OnTick()
    if(!g_isOptimizing) AdoptManualTrades();
    
    // 4. Entry Logic (Quick exit if active trade present)
-   if(!IsActiveTradePresent() && IsSessionActive()) {
+   if(!g_hasActiveSequence && IsSessionActive()) {
       CheckNewEntries();
    }
 

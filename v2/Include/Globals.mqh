@@ -31,6 +31,8 @@ bool     g_isStateDirty  = false; // Dirty flag to consolidate redundant SaveSta
 datetime g_lastTrimTime  = 0;     // Timestamp of last trim to prevent double-triggering
 bool     g_isOptimizing  = false; // Optimization mode flag
 bool     g_isTester      = false; // Strategy Tester mode flag
+bool     g_hasActiveSequence = false; // PRD 7.4.13: Global short-circuit for active sequences
+double   g_capitulationLots = 0;   // PRD 7.4.14: Cached MaxLots * 2.0
 
 //--- SEQUENCE INFO: Tracks individual trade cycles (PRD 3.1, 5.2)
 struct SequenceInfo {
@@ -42,6 +44,13 @@ struct SequenceInfo {
    double lastPyramidSL;      // SL price at the time of the last pyramid entry
 };
 SequenceInfo g_sequences[];   // Dynamic array of all managed sequences
+   
+//--- ACTIVE TICKET CACHE: Tiny subset of open positions that are UNHEDGED (PRD 7.4.11)
+struct ActiveTicketMap {
+   ulong ticket;
+   long  magic;
+};
+ActiveTicketMap g_activeTickets[]; // Rebuilt only on position count change
 
 //--- MANUAL ADOPTION: Maps manual tickets to sequence IDs (PRD 3.2)
 struct ManualMap {

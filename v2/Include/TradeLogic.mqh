@@ -89,7 +89,7 @@ void AdoptManualTrades()
 //+------------------------------------------------------------------+
 void CheckNewEntries()
 {
-   if(IsActiveTradePresent()) return; // One-active-trade per chart rule
+   if(g_hasActiveSequence) return; // One-active-trade per chart rule
    if(!IsSessionActive()) return;
 
    int signal = 0;
@@ -114,24 +114,20 @@ void CheckNewEntries()
       
       for(int i=0; i<3; i++) {
          int stratIndex = p[i];
-         bool useStrat = false;
-         string stratN = "";
-         if(stratIndex == 1) { useStrat = S1UseStrategy; stratN = S1Name; }
-         else if(stratIndex == 2) { useStrat = S2UseStrategy; stratN = S2Name; }
-         else if(stratIndex == 3) { useStrat = S3UseStrategy; stratN = S3Name; }
+         bool useStrat = (stratIndex == 1) ? S1UseStrategy : (stratIndex == 2) ? S2UseStrategy : S3UseStrategy;
          
          if(useStrat) {
-            string explanation = "";
             int s = GetStrategySignal(stratIndex, explanation);
             if(s != 0) { 
                if(!g_isOptimizing) {
+                  string stratN = (stratIndex == 1) ? S1Name : (stratIndex == 2) ? S2Name : S3Name;
                   PrintFormat("[SIGNAL] Strategy Evaluation: %s", stratN);
                   Print(explanation);
                }
                
                if(signal == 0) { // Select the first one found (Priority order)
                   signal = s; 
-                  stratName = stratN;
+                  stratName = (stratIndex == 1) ? S1Name : (stratIndex == 2) ? S2Name : S3Name;
                   if(g_isOptimizing) break;
                }
             }
@@ -187,11 +183,13 @@ void ManageLockedSequences()
                if(!g_isOptimizing) PrintFormat("[HEDGE] Sequence %I64d Locked Symmetrically (Vol: %.2f)", g_sequences[i].magic, reqVol);
                
                // PRD 4.1: Once locked, all trailing functionality is disabled and exposure must remain invariant.
-               // Remove existing StopLoss and TakeProfit from ALL positions in this sequence to prevent accidental closures.
-               for(int j=PositionsTotal()-1; j>=0; j--) {
-                  if(m_position.SelectByIndex(j) && m_position.Symbol() == _Symbol && m_position.Magic() == g_sequences[i].magic) {
-                     if(m_position.StopLoss() != 0 || m_position.TakeProfit() != 0) {
-                        m_trade.PositionModify(m_position.Ticket(), 0, 0);
+               // PRD 7.4.11: Use g_activeTickets micro-cache for stripping SL/TP instead of PositionsTotal()
+               for(int j=ArraySize(g_activeTickets)-1; j>=0; j--) {
+                  if(g_activeTickets[j].magic == g_sequences[i].magic) {
+                     if(m_position.SelectByTicket(g_activeTickets[j].ticket)) {
+                        if(m_position.StopLoss() != 0 || m_position.TakeProfit() != 0) {
+                           m_trade.PositionModify(m_position.Ticket(), 0, 0);
+                        }
                      }
                   }
                }
@@ -215,7 +213,7 @@ void ManageLockedSequences()
 void ManagePyramiding()
 {
    if(!PyramidAllowed) return;
-   if(!IsActiveTradePresent()) return;
+   if(!g_hasActiveSequence) return;
 
    for(int i=0; i<ArraySize(g_sequences); i++) {
       if(g_sequences[i].state == SEQ_ACTIVE) {
@@ -230,22 +228,25 @@ void ManagePyramiding()
          double tickValue = m_symbol.TickValue();
          if(tickSize <= 0) tickSize = _Point;
          
-         for(int j=PositionsTotal()-1; j>=0; j--) {
-            if(m_position.SelectByIndex(j) && m_position.Symbol() == _Symbol && m_position.Magic() == magic) {
-               double sl = m_position.StopLoss();
-               double entry = m_position.PriceOpen();
-               double vol = m_position.Volume();
-               type = m_position.PositionType();
-               
-               if(sl > 0) {
-                  double profitDist = (type == POSITION_TYPE_BUY) ? (sl - entry) : (entry - sl);
-                  if(profitDist > 0) {
-                     double posSecured = (profitDist / tickSize) * tickValue * vol;
-                     totalSecuredProfit += posSecured;
-                     if(currentSL == 0) currentSL = sl;
+         // PRD 7.4.11: Use g_activeTickets micro-cache to scan positions for this specific active sequence
+         for(int j=0; j<ArraySize(g_activeTickets); j++) {
+            if(g_activeTickets[j].magic == magic) {
+               if(m_position.SelectByTicket(g_activeTickets[j].ticket)) {
+                  double sl = m_position.StopLoss();
+                  double entry = m_position.PriceOpen();
+                  double vol = m_position.Volume();
+                  type = m_position.PositionType();
+                  
+                  if(sl > 0) {
+                     double profitDist = (type == POSITION_TYPE_BUY) ? (sl - entry) : (entry - sl);
+                     if(profitDist > 0) {
+                        double posSecured = (profitDist / tickSize) * tickValue * vol;
+                        totalSecuredProfit += posSecured;
+                        if(currentSL == 0) currentSL = sl;
+                     }
                   }
+                  posCount++;
                }
-               posCount++;
             }
          }
          
@@ -405,7 +406,7 @@ void PerformSymmetricalTrimming()
 //+------------------------------------------------------------------+
 void CapitulationRule()
 {
-   if(g_totalBuyLots > MaxLots * 2.0 || g_totalSellLots > MaxLots * 2.0) {
+   if(g_totalBuyLots > g_capitulationLots || g_totalSellLots > g_capitulationLots) {
       int farthestIdx = -1;
       double maxDist = -1;
       double currentPrice = (m_symbol.Ask() + m_symbol.Bid()) / 2.0;
@@ -435,57 +436,60 @@ void CapitulationRule()
 //+------------------------------------------------------------------+
 void ManageTrailingSL()
 {
-   if(!IsActiveTradePresent()) return;
+   if(!g_hasActiveSequence) return;
    
-   for(int i=PositionsTotal()-1; i>=0; i--) {
-      if(m_position.SelectByIndex(i) && m_position.Symbol() == _Symbol) {
-         long magic = m_position.Magic();
-         bool isActive = false;
-         for(int j=0; j<ArraySize(g_sequences); j++) {
-            if(g_sequences[j].magic == magic && g_sequences[j].state == SEQ_ACTIVE) { isActive = true; break; }
-         }
-         if(!isActive) continue;
+   for(int i=0; i<ArraySize(g_sequences); i++) {
+      if(g_sequences[i].state == SEQ_ACTIVE) {
+         long magic = g_sequences[i].magic;
          
-         double pips = (m_position.PositionType() == POSITION_TYPE_BUY) ? (m_symbol.Bid() - m_position.PriceOpen()) : (m_position.PriceOpen() - m_symbol.Ask());
-         pips /= (m_symbol.Point() * 10);
+         // Find any position in this sequence to determine direction and current SL
+         ENUM_POSITION_TYPE dir = POSITION_TYPE_BUY;
+         bool found = false;
+         double maxPips = -999999;
+         ulong bestTicket = 0;
+         double currentSL = 0;
+         
+         for(int j=0; j<ArraySize(g_activeTickets); j++) {
+            if(g_activeTickets[j].magic == magic) {
+               if(m_position.SelectByTicket(g_activeTickets[j].ticket)) {
+                  dir = m_position.PositionType();
+                  currentSL = m_position.StopLoss();
+                  double p = (dir == POSITION_TYPE_BUY) ? (m_symbol.Bid() - m_position.PriceOpen()) : (m_position.PriceOpen() - m_symbol.Ask());
+                  p /= (m_symbol.Point() * 10);
+                  if(p > maxPips) { maxPips = p; bestTicket = m_position.Ticket(); }
+                  found = true;
+               }
+            }
+         }
+         
+         if(!found) continue;
          
          double effectiveLockProfit = HedgePips + LockProfitPips;
-         if(pips >= effectiveLockProfit) {
-            double newSL = (m_position.PositionType() == POSITION_TYPE_BUY) ? (m_symbol.Bid() - TrailingStopPips * m_symbol.Point() * 10) : (m_symbol.Ask() + TrailingStopPips * m_symbol.Point() * 10);
-            double currentSL = m_position.StopLoss();
+         if(maxPips >= effectiveLockProfit) {
+            double newSL = (dir == POSITION_TYPE_BUY) ? (m_symbol.Bid() - TrailingStopPips * m_symbol.Point() * 10) : (m_symbol.Ask() + TrailingStopPips * m_symbol.Point() * 10);
             
-            // Re-check betterment before processing harvest
+            // Re-check betterment
             bool better = false;
-            double diff = (m_position.PositionType() == POSITION_TYPE_BUY) ? (newSL - currentSL) : (currentSL - newSL);
+            double diff = (dir == POSITION_TYPE_BUY) ? (newSL - currentSL) : (currentSL - newSL);
             if(currentSL == 0 || diff > 0.5 * m_symbol.Point()) better = true;
-
             if(!better) continue;
 
-            ulong ticket = m_position.Ticket();
-            
-            // Sync SL to all UNHEDGED positions of the same magic that match the active direction
-            bool anyFailed = false;
-            for(int j=PositionsTotal()-1; j>=0; j--) {
-               if(m_position.SelectByIndex(j) && m_position.Symbol() == _Symbol && m_position.Magic() == magic) {
-                  // Only modify if it's the correct direction for this active sequence to avoid race conditions with opening hedges
-                  if(m_position.PositionType() == ((pips > 0 && m_position.PositionType() == POSITION_TYPE_BUY) ? POSITION_TYPE_BUY : POSITION_TYPE_SELL)) {
-                     if(!m_trade.PositionModify(m_position.Ticket(), newSL, 0)) anyFailed = true;
+            // Apply to all positions of this magic
+            // PRD 5.1 & [BEHAVIOR FIX]: Only modify on the server if the trade is actually in profit (maxPips > 0).
+            // This prevents the SL from being "stuck" at a high level on the server while the trade is still in a loss,
+            // matching the behavior observed before optimization.
+            if(maxPips > 0) {
+               for(int j=0; j<ArraySize(g_activeTickets); j++) {
+                  if(g_activeTickets[j].magic == magic) {
+                     m_trade.PositionModify(g_activeTickets[j].ticket, newSL, 0);
                   }
                }
             }
 
-            if(!anyFailed) {
-               if(!g_isOptimizing) {
-                  if(currentSL == 0) {
-                     PrintFormat("[TRADE] Profit Locked: Sequence %I64d SL set at %.5f (Pips: %.1f, TrailPips: %.1f)", 
-                                 magic, newSL, pips, TrailingStopPips);
-                  } else {
-                     PrintFormat("[TRADE] Trailing Stop updated: %.5f -> %.5f (Sequence %I64d, Pips: %.1f, TrailPips: %.1f)", 
-                                 currentSL, newSL, magic, pips, TrailingStopPips);
-                  }
-               }
+            if(!g_isOptimizing) {
+               if(currentSL == 0) PrintFormat("[TRADE] Profit Locked: Sequence %I64d SL set at %.5f (Pips: %.1f)", magic, newSL, maxPips);
+               else PrintFormat("[TRADE] Trailing Stop updated: %.5f -> %.5f (Sequence %I64d)", currentSL, newSL, magic);
             }
-            break; // Processed this sequence, move to next position in outer loop
          }
       }
    }
@@ -528,7 +532,7 @@ void ReconcileRecentDeals()
                bool isTrim = (StringFind(dealComment, "[TRIM]") >= 0);
                bool isCap = (!isTrim && StringFind(dealComment, "Capitulation") >= 0);
                
-               // Booked Profit (At Close)
+               // Booked Profit/Loss (At Close)
                if(!isTrim && !isCap && HasLockedSequences()) {
                   if(net > 0) {
                      amountToAdd = net * (HarvestsProfitPercent / 100.0);
@@ -536,6 +540,11 @@ void ReconcileRecentDeals()
                      g_unharvestedProfit += unharvestedAmount;
                      if(!g_isOptimizing) PrintFormat("[TRIM] Target Profit Harvested: Magic %I64d, Net: %.2f, Amount (%.0f%%): +%.2f, Unharvested Added: %.2f, Total Unharvested: %.2f", 
                                  dealMagic, net, HarvestsProfitPercent, amountToAdd, unharvestedAmount, g_unharvestedProfit);
+                  } else if(net < 0) {
+                     // PRD 5.1 & 5.2: Active trade losses are deducted from the Tally entirely.
+                     g_profitTally += net;
+                     if(!g_isOptimizing) PrintFormat("[TRIM] Active trade loss deducted from Tally: Magic %I64d, Net: %.2f, New Tally: %.2f", dealMagic, net, g_profitTally);
+                     TriggerSave();
                   }
                } else if (isTrim) {
                   // Deal generated by Symmetrical Trimming
